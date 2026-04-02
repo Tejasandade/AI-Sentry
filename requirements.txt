@@ -1,0 +1,9 @@
+opencv-python
+face-recognition
+flask
+numpy
+cmake
+requests
+flask-cors
+playsound==1.2.2
+mediapipe

@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Sentry UI</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #050505;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            color: #00ffcc;
+            transition: background-color 0.8s, color 0.8s;
+        }
+
+        .face-container {
+            display: flex;
+            gap: 120px;
+            margin-bottom: 60px;
+            position: relative;
+            z-index: 5;
+        }
+
+        .eye {
+            width: 160px;
+            height: 220px;
+            background-color: #00ffcc;
+            border-radius: 80px;
+            transition: all 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            /* Bouncy transition */
+            position: relative;
+            box-shadow: 0 0 60px rgba(0, 255, 204, 0.6);
+        }
+
+        /* ================= EMO ANIMATIONS ================= */
+
+        /* 1. IDLE (Scanning) */
+        .state-idle .eye {
+            animation: blink 4s infinite, look-around 10s infinite;
+        }
+
+        /* 2. KNOWN (Friendly & Happy) */
+        .state-known {
+            color: #39ff14;
+            background-color: #001a00;
+        }
+
+        .state-known .eye {
+            background-color: #39ff14;
+            box-shadow: 0 0 80px rgba(57, 255, 20, 0.8);
+            /* Create a smiling crescent shape */
+            height: 120px;
+            border-radius: 20px 20px 150px 150px;
+            margin-top: 50px;
+            transform: scale(1.1);
+            animation: gentle-bob 3s ease-in-out infinite;
+        }
+
+        /* 3. UNKNOWN (Angry & Aggressive Warning) */
+        .state-unknown {
+            color: #ff073a;
+            background-color: #1a0000;
+        }
+
+        .state-unknown .eye {
+            background-color: #ff073a;
+            box-shadow: 0 0 100px rgba(255, 7, 58, 0.9), inset 0 0 20px #000;
+            height: 90px;
+            width: 180px;
+            border-radius: 10px 10px 40px 40px;
+            /* Sharp angle inwards for angry brow */
+            transform: rotate(-25deg) scale(1.2);
+            margin-top: 20px;
+            animation: intense-shake 0.3s infinite;
+        }
+
+        .state-unknown .eye:last-child {
+            transform: rotate(25deg) scale(1.2);
+        }
+
+        /* 4. FIRING (Cold Blue Terminator Tracker) */
+        .state-firing {
+            color: #00aeff;
+            background-color: #00111a;
+        }
+
+        .state-firing .eye {
+            background-color: #00aeff;
+            box-shadow: 0 0 100px rgba(0, 174, 255, 0.9), inset 0 0 40px #000;
+            height: 140px;
+            width: 140px;
+            border-radius: 50%;
+            /* Perfect glowing circles */
+            margin-top: 40px;
+            transform: scale(1.1);
+            /* No shake, dead cold stare */
+        }
+
+        /* ================= WEAPON SYSTEM ================= */
+        .weapon-container {
+            position: absolute;
+            bottom: -500px;
+            right: -250px;
+            /* Deep down in the holster */
+            transform-origin: bottom center;
+            transform: rotate(70deg);
+            transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+            /* Realistic snappy draw */
+            z-index: 15;
+            filter: drop-shadow(0 0 20px #ff073a);
+        }
+
+        /* 1. Aiming (Drawn from the side/hip) */
+        .state-unknown .weapon-container {
+            bottom: -50px;
+            right: 15vw;
+            transform: rotate(-10deg) scale(1.3);
+            filter: drop-shadow(0 0 20px #ff073a);
+        }
+
+        /* 2. Firing (Blue aesthetic + Recoil) */
+        .state-firing .weapon-container {
+            bottom: -50px;
+            right: 15vw;
+            transform: rotate(-10deg) scale(1.3);
+            filter: drop-shadow(0 0 30px #00aeff);
+            animation: shoot-recoil 0.25s infinite;
+        }
+
+        .muzzle-flash {
+            opacity: 0;
+            transition: opacity 0.1s;
+        }
+
+        .state-firing .muzzle-flash {
+            opacity: 1;
+            animation: flash-flicker 0.1s infinite;
+        }
+
+        .laser-sight {
+            fill: #ff073a;
+            transition: fill 0.4s;
+        }
+
+        .state-firing .laser-sight {
+            fill: #00aeff;
+        }
+
+        /* ================= KEYFRAMES ================= */
+        @keyframes blink {
+
+            0%,
+            46%,
+            50%,
+            100% {
+                height: 220px;
+                transform: scaleY(1);
+            }
+
+            48% {
+                height: 10px;
+                transform: scaleY(0.1);
+            }
+        }
+
+        @keyframes look-around {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            20% {
+                transform: translateX(-40px);
+            }
+
+            40% {
+                transform: translateX(0);
+            }
+
+            60% {
+                transform: translateX(40px);
+            }
+
+            80% {
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes gentle-bob {
+
+            0%,
+            100% {
+                transform: translateY(0) scale(1.1);
+            }
+
+            50% {
+                transform: translateY(-15px) scale(1.1);
+            }
+        }
+
+        @keyframes intense-shake {
+            0% {
+                transform: translate(0, 0) rotate(-25deg) scale(1.2);
+            }
+
+            25% {
+                transform: translate(2px, 2px) rotate(-25deg) scale(1.2);
+            }
+
+            50% {
+                transform: translate(0, -2px) rotate(-25deg) scale(1.2);
+            }
+
+            75% {
+                transform: translate(-2px, 0) rotate(-25deg) scale(1.2);
+            }
+
+            100% {
+                transform: translate(0, 0) rotate(-25deg) scale(1.2);
+            }
+        }
+
+        .state-unknown .eye:last-child {
+            animation: intense-shake-right 0.3s infinite;
+        }
+
+        @keyframes intense-shake-right {
+            0% {
+                transform: translate(0, 0) rotate(25deg) scale(1.2);
+            }
+
+            25% {
+                transform: translate(2px, 2px) rotate(25deg) scale(1.2);
+            }
+
+            50% {
+                transform: translate(0, -2px) rotate(25deg) scale(1.2);
+            }
+
+            75% {
+                transform: translate(-2px, 0) rotate(25deg) scale(1.2);
+            }
+
+            100% {
+                transform: translate(0, 0) rotate(25deg) scale(1.2);
+            }
+        }
+
+        @keyframes shoot-recoil {
+
+            0%,
+            100% {
+                transform: rotate(-15deg) scale(1.3) translateX(0) translateY(0);
+            }
+
+            50% {
+                transform: rotate(-10deg) scale(1.3) translateX(20px) translateY(20px);
+            }
+
+            /* Kick up and back */
+        }
+
+        @keyframes flash-flicker {
+
+            0%,
+            100% {
+                opacity: 0.2;
+                transform: scale(0.8);
+            }
+
+            50% {
+                opacity: 1;
+                transform: scale(1.5);
+            }
+        }
+
+        .status-text {
+            font-size: 3rem;
+            font-weight: bold;
+            letter-spacing: 4px;
+            text-align: center;
+            text-shadow: 0 0 30px currentColor;
+            transition: all 0.3s;
+            z-index: 5;
+            text-transform: uppercase;
+        }
+
+        /* Scanline effect */
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom,
+                    rgba(255, 255, 255, 0),
+                    rgba(255, 255, 255, 0) 50%,
+                    rgba(0, 0, 0, 0.3) 50%,
+                    rgba(0, 0, 0, 0.3));
+            background-size: 100% 6px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* Audio unlock prompt */
+        #audio-prompt {
+            position: absolute;
+            top: 20px;
+            font-size: 1rem;
+            color: #666;
+            cursor: pointer;
+            z-index: 20;
+        }
+    </style>
+</head>
+
+<body class="state-idle" id="body-state">
+    <div class="scanlines"></div>
+    <div id="audio-prompt">Tap anywhere to Enable Audio & Fullscreen</div>
+
+    <div class="face-container">
+        <div class="eye"></div>
+        <div class="eye"></div>
+    </div>
+
+    <div class="status-text" id="status-msg">Scanning...</div>
+
+    <!-- The Hidden Weapon Graphic (Sci-Fi Blaster) -->
+    <div class="weapon-container">
+        <svg width="200" height="300" viewBox="0 0 100 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- Barrel -->
+            <rect x="25" y="20" width="30" height="120" fill="#222" rx="3" />
+            <rect x="20" y="40" width="40" height="20" rx="2" class="laser-sight" /> <!-- Laser sight beam guide -->
+            <!-- Base barrel frame -->
+            <rect x="15" y="80" width="50" height="60" fill="#333" rx="5" />
+
+            <!-- Grip / Handle -->
+            <polygon points="25,140 55,140 70,220 10,220" fill="#111" />
+
+            <!-- Muzzle Flash (Hidden until firing) -->
+            <circle cx="40" cy="10" r="15" fill="#fff" class="muzzle-flash" />
+            <circle cx="40" cy="10" r="25" fill="#ff073a" class="muzzle-flash" style="mix-blend-mode: screen;" />
+        </svg>
+    </div>
+
+    <script>
+        const bodyState = document.getElementById('body-state');
+        const statusMsg = document.getElementById('status-msg');
+        const audioPrompt = document.getElementById('audio-prompt');
+        let currentStatus = 'idle';
+        let audioEnabled = false;
+        let firingTimeout = null;
+        let shootingInterval = null;
+
+        // Auto-enable audio on ANY user interaction (click or touch)
+        function enableAudio() {
+            if (!audioEnabled && window.speechSynthesis) {
+                audioEnabled = true;
+                audioPrompt.style.display = 'none';
+                // Warm up the speech engine with a silent utterance (required by browsers)
+                const warmup = new SpeechSynthesisUtterance('');
+                warmup.volume = 0;
+                window.speechSynthesis.speak(warmup);
+                // Immediately speak startup message
+                setTimeout(() => {
+                    const utterThis = new SpeechSynthesisUtterance("Audio systems online.");
+                    utterThis.volume = 0.8;
+                    utterThis.pitch = 0.4;
+                    utterThis.rate = 1.1;
+                    window.speechSynthesis.speak(utterThis);
+                }, 100);
+            }
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(e => console.error(e));
+            }
+        }
+
+        document.body.addEventListener('click', enableAudio);
+        document.body.addEventListener('touchstart', enableAudio, {passive: true});
+
+        // Try to auto-enable via page visibility change (works in some browsers)
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && window.speechSynthesis) {
+                // Preload voices
+                window.speechSynthesis.getVoices();
+            }
+        });
+
+        function robotSpeak(text, emotion) {
+            if (!audioEnabled || !window.speechSynthesis) return;
+
+            // Cancel any current speech so it doesn't overlap
+            window.speechSynthesis.cancel();
+
+            const utterThis = new SpeechSynthesisUtterance(text);
+
+            // Configure voice based on emotion
+            if (emotion === 'friendly') {
+                utterThis.pitch = 1.2; // Higher, friendlier
+                utterThis.rate = 1.0;
+                utterThis.volume = 1.0;
+            } else if (emotion === 'aggressive') {
+                utterThis.pitch = 0.1; // Deep, scary, robotic
+                utterThis.rate = 0.9;
+                utterThis.volume = 1.0;
+            } else if (emotion === 'rapid') {
+                utterThis.pitch = 0.5;
+                utterThis.rate = 2.0; // Fast for shooting sounds
+                utterThis.volume = 1.0;
+            } else {
+                utterThis.pitch = 1.0;
+                utterThis.rate = 1.0;
+            }
+
+            window.speechSynthesis.speak(utterThis);
+        }
+
+        async function fetchState() {
+            try {
+                let fetchUrl = '/state';
+                if (window.location.port === '5500') {
+                    fetchUrl = 'http://127.0.0.1:5000/state';
+                }
+
+                const response = await fetch(fetchUrl);
+                const data = await response.json();
+
+                if (data.status !== currentStatus || (currentStatus === 'unknown' && data.status !== 'unknown')) {
+                    // State has CHANGED
+
+                    // Cleanup any existing firing sequence
+                    if (firingTimeout) clearTimeout(firingTimeout);
+                    if (shootingInterval) clearInterval(shootingInterval);
+
+                    bodyState.className = `state-${data.status}`;
+                    currentStatus = data.status;
+
+                    if (data.status === 'idle') {
+                        statusMsg.innerText = "Scanning Area...";
+                        // Usually we don't speak on idle to avoid being annoying, but we could.
+
+                    } else if (data.status === 'known') {
+                        statusMsg.innerText = `Welcome, ${data.name}!`;
+                        robotSpeak(`Welcome back, ${data.name}. Access granted.`, 'friendly');
+
+                    } else if (data.status === 'unknown') {
+                        statusMsg.innerText = "WARNING: INTRUDER";
+                        // Using a scary robotic phrase
+                        robotSpeak("Intruder detected. You have three seconds to comply. Weapons drawn.", 'aggressive');
+
+                        // 1. Give the intruder 3 seconds to leave.
+                        firingTimeout = setTimeout(() => {
+                            if (currentStatus === 'unknown') {
+                                // 2. Time is up. Enter active firing state!
+                                bodyState.className = "state-firing"; // Replaces state-unknown
+                                statusMsg.innerText = "ENGAGING TARGET";
+
+                                // Synthesize a fake rapid firing sound
+                                robotSpeak("pew pew pew pew pew pew", 'rapid');
+
+                                // Keep repeating the firing sound every second
+                                shootingInterval = setInterval(() => {
+                                    if (currentStatus === 'unknown') {
+                                        robotSpeak("pew pew pew pew pew pew", 'rapid');
+                                    } else {
+                                        clearInterval(shootingInterval);
+                                    }
+                                }, 1000);
+                            }
+                        }, 3000); // 3-second warning grace period
+                    }
+                }
+            } catch (error) {
+                console.error("Error fetching state:", error);
+                if (currentStatus !== 'offline') {
+                    if (firingTimeout) clearTimeout(firingTimeout);
+                    if (shootingInterval) clearInterval(shootingInterval);
+                    bodyState.className = "state-idle";
+                    statusMsg.innerText = "System Offline...";
+                    currentStatus = "offline";
+                }
+            }
+        }
+
+        setInterval(fetchState, 500);
+    </script>
+</body>
+
+</html>

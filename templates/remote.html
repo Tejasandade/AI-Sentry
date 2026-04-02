@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Sentry Remote Dashboard</title>
+    <style>
+        body { margin: 0; padding: 0; background-color: #121212; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; height: 100vh; overflow: hidden; }
+        header { width: 100%; padding: 15px; background-color: #1e1e1e; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 10; }
+        h1 { margin: 0; font-size: 1.5rem; color: #4DA8DA; letter-spacing: 1px; }
+        .stream-container { margin-top: 20px; width: 95%; max-width: 340px; aspect-ratio: 9 / 16; border-radius: 12px; overflow: hidden; border: 2px solid #333; box-shadow: 0 8px 16px rgba(0,0,0,0.5); position: relative; background: #000; display: flex; justify-content: center; align-items: center; }
+        /* The stream is now natively vertical from the server center-crop */
+        .stream-container img { 
+            width: 100%; 
+            height: 100%; 
+            display: block; 
+            object-fit: cover; 
+        }
+        .controls-container { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 30px; padding: 20px 0; }
+        .status-badge { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 8px; font-size: 0.9rem; font-weight: bold; z-index: 5; }
+        .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #ff3b30; margin-right: 5px; animation: pulse 1.5s infinite; }
+        
+        .dpad { display: grid; grid-template-columns: repeat(3, 70px); grid-template-rows: repeat(3, 70px); gap: 10px; }
+        .btn { background: #2a2a2a; border: none; border-radius: 12px; color: white; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.1s; box-shadow: 0 4px 0 #151515, 0 5px 10px rgba(0,0,0,0.4); user-select: none; }
+        .btn:active { transform: translateY(4px); box-shadow: 0 0 0 #151515, 0 2px 5px rgba(0,0,0,0.4); background: #3a3a3a; }
+        
+        .up { grid-column: 2; grid-row: 1; }
+        .left { grid-column: 1; grid-row: 2; }
+        .center { grid-column: 2; grid-row: 2; background: #4DA8DA; color: #121212; font-size: 1rem; font-weight: bold; }
+        .center:active { background: #3b8ac0; }
+        .right { grid-column: 3; grid-row: 2; }
+        .down { grid-column: 2; grid-row: 3; }
+        
+        .mic-container { margin-left: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .mic-btn { width: 80px; height: 80px; border-radius: 50%; background: #ff3b30; border: none; color: white; font-size: 2rem; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 0 #cc2a20, 0 8px 15px rgba(0,0,0,0.5); transition: all 0.1s; user-select: none; -webkit-touch-callout: none; }
+        .mic-btn:active, .mic-btn.recording { transform: translateY(6px); box-shadow: 0 0 0 #cc2a20, 0 2px 5px rgba(0,0,0,0.5); background: #ff5c53; animation: pulse-mic 1s infinite; }
+        .mic-status { margin-top: 15px; font-size: 0.9rem; color: #aaa; font-weight: bold; letter-spacing: 1px; }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        @keyframes pulse-mic { 0% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 59, 48, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); } }
+        
+        @media (max-width: 600px) {
+            .controls-container { flex-direction: column; gap: 30px; padding: 10px 0; }
+            .mic-container { margin-left: 0; }
+            .dpad { grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px); }
+            .btn { font-size: 1.2rem; }
+            .mic-btn { width: 70px; height: 70px; font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>AI SENTRY REMOTE</h1>
+    </header>
+    
+    <div class="stream-container">
+        <div class="status-badge"><span class="status-indicator"></span> LIVE</div>
+        <img src="/video_feed" alt="Camera Stream Loading...">
+    </div>
+
+    <!-- Secure Context Warning (Microphone availability depends on HTTPS/Localhost) -->
+    <div id="secureWarning" style="display:none; background: #ff3b30; color: white; padding: 10px; margin: 10px; border-radius: 8px; font-size: 0.85rem; text-align: center; max-width: 90%;">
+        ⚠️ <strong>MIC BLOCKED:</strong> Browsers require HTTPS or Localhost for Microphone access.<br>
+        <span style="font-size: 0.75rem; opacity: 0.9;">On Android Chrome, go to <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> and add this IP.</span>
+    </div>
+    
+    <div class="controls-container">
+        <div class="dpad">
+            <button class="btn up" onclick="sendCommand('tilt', 'up')">▲</button>
+            <button class="btn left" onclick="sendCommand('pan', 'left')">◀</button>
+            <button class="btn center" onclick="sendCommand('center', 'reset')">RST</button>
+            <button class="btn right" onclick="sendCommand('pan', 'right')">▶</button>
+            <button class="btn down" onclick="sendCommand('tilt', 'down')">▼</button>
+        </div>
+
+        <div class="mic-container">
+            <button class="mic-btn" id="micBtn">🎤</button>
+            <div class="mic-status" id="micStatus">HOLD TO SPEAK</div>
+        </div>
+    </div>
+
+    <script>
+        // Motor Controls
+        function sendCommand(motor, direction) {
+            fetch(`/control/${motor}/${direction}`)
+                .then(response => response.json())
+                .catch(error => console.error('Error:', error));
+            if (navigator.vibrate) navigator.vibrate(50);
+        }
+
+        // Secure Context Check (HTTPS/Localhost required for Microphone)
+        const secureWarning = document.getElementById('secureWarning');
+        if (!window.isSecureContext) {
+            secureWarning.style.display = 'block';
+            console.warn("MICROPHONE BLOCKED: Insecure Context. Use HTTPS or Localhost.");
+        }
+
+        // Voice Commands (Push-to-Talk)
+        const micBtn = document.getElementById('micBtn');
+        const micStatus = document.getElementById('micStatus');
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        // Initialize Microphone
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                mediaRecorder = new MediaRecorder(stream);
+                
+                mediaRecorder.addEventListener("dataavailable", event => {
+                    audioChunks.push(event.data);
+                });
+
+                mediaRecorder.addEventListener("stop", () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    audioChunks = []; // Reset for next recording
+                    
+                    micStatus.innerText = "SENDING...";
+                    
+                    // Send audio to Python server
+                    const formData = new FormData();
+                    formData.append("audio", audioBlob, "voice_command.webm");
+                    
+                    fetch('/audio_command', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        micStatus.innerText = "HOLD TO SPEAK";
+                        micStatus.style.color = "#aaa";
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        micStatus.innerText = "ERROR SENDING";
+                        micStatus.style.color = "#ff3b30";
+                        setTimeout(() => { micStatus.innerText = "HOLD TO SPEAK"; micStatus.style.color = "#aaa"; }, 2000);
+                    });
+                });
+            })
+            .catch(err => {
+                console.error("Microphone access denied:", err);
+                micStatus.innerText = "MIC ACCESS DENIED";
+                micStatus.style.color = "#ff3b30";
+                
+                // Show warning if denied potentially due to insecure context
+                if (!window.isSecureContext) {
+                    secureWarning.style.display = 'block';
+                }
+            });
+
+        // Handle Hold to Record Touch/Mouse Events
+        function startRecording(e) {
+            e.preventDefault();
+            if (mediaRecorder && mediaRecorder.state === "inactive") {
+                isRecording = true;
+                mediaRecorder.start();
+                micBtn.classList.add("recording");
+                micStatus.innerText = "RECORDING...";
+                micStatus.style.color = "#ff3b30";
+                if (navigator.vibrate) navigator.vibrate(100);
+            }
+        }
+
+        function stopRecording(e) {
+            e.preventDefault();
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                isRecording = false;
+                mediaRecorder.stop();
+                micBtn.classList.remove("recording");
+            }
+        }
+
+        // Bind events for both Mouse and Touch screens
+        micBtn.addEventListener("mousedown", startRecording);
+        micBtn.addEventListener("touchstart", startRecording, {passive: false});
+        
+        document.addEventListener("mouseup", stopRecording);
+        document.addEventListener("touchend", stopRecording);
+    </script>
+</body>
+</html>

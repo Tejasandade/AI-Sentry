@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+venv/
+env/
+.venv/
+cmake.zip
+cmake_install/
+*.whl
+# You might want to track known faces, but ignore intruder captures
+intruders/
