@@ -2,181 +2,360 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Sentry Remote Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Sentry Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
-        body { margin: 0; padding: 0; background-color: #121212; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; height: 100vh; overflow: hidden; }
-        header { width: 100%; padding: 15px; background-color: #1e1e1e; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 10; }
-        h1 { margin: 0; font-size: 1.5rem; color: #4DA8DA; letter-spacing: 1px; }
-        .stream-container { margin-top: 20px; width: 95%; max-width: 340px; aspect-ratio: 9 / 16; border-radius: 12px; overflow: hidden; border: 2px solid #333; box-shadow: 0 8px 16px rgba(0,0,0,0.5); position: relative; background: #000; display: flex; justify-content: center; align-items: center; }
-        /* The stream is now natively vertical from the server center-crop */
-        .stream-container img { 
-            width: 100%; 
-            height: 100%; 
-            display: block; 
-            object-fit: cover; 
+        :root {
+            --primary: #00e5ff; /* Cyan */
+            --danger: #ff2a55; /* Neon Red */
+            --surface: rgba(255, 255, 255, 0.03);
+            --surface-hover: rgba(255, 255, 255, 0.08);
+            --border: rgba(255, 255, 255, 0.08);
+            --bg: #090b10;
         }
-        .controls-container { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 30px; padding: 20px 0; }
-        .status-badge { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 8px; font-size: 0.9rem; font-weight: bold; z-index: 5; }
-        .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #ff3b30; margin-right: 5px; animation: pulse 1.5s infinite; }
+
+        * { box-sizing: border-box; }
         
-        .dpad { display: grid; grid-template-columns: repeat(3, 70px); grid-template-rows: repeat(3, 70px); gap: 10px; }
-        .btn { background: #2a2a2a; border: none; border-radius: 12px; color: white; font-size: 1.5rem; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.1s; box-shadow: 0 4px 0 #151515, 0 5px 10px rgba(0,0,0,0.4); user-select: none; }
-        .btn:active { transform: translateY(4px); box-shadow: 0 0 0 #151515, 0 2px 5px rgba(0,0,0,0.4); background: #3a3a3a; }
+        body { 
+            margin: 0; padding: 0; padding-bottom: 40px;
+            background: var(--bg); 
+            background-image: radial-gradient(circle at 50% 0%, #171d2b 0%, var(--bg) 70%);
+            color: white; font-family: 'Outfit', sans-serif; 
+            display: flex; flex-direction: column; align-items: center; 
+            min-height: 100vh; overflow-y: auto; overflow-x: hidden;
+        }
+
+        header { 
+            width: 100%; padding: 20px; 
+            background: transparent; position: relative;
+            z-index: 10; display: flex; justify-content: space-between; align-items: center;
+            max-width: 600px; margin: 0 auto;
+        }
         
+        h1 { 
+            margin: 0; font-size: 1.4rem; font-weight: 800;
+            background: linear-gradient(90deg, #fff, var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 1px;
+        }
+
+        .faces-btn { 
+            background: var(--surface); color: white; border: 1px solid var(--border); 
+            padding: 12px 20px; border-radius: 20px; font-weight: 600; cursor: pointer; 
+            font-size: 0.95rem; transition: all 0.3s ease; backdrop-filter: blur(10px);
+        }
+        .faces-btn:active { transform: scale(0.95); background: var(--surface-hover); }
+
+        .dashboard-main {
+            display: flex; flex-direction: column; align-items: center; width: 100%; padding: 0 15px; 
+            gap: 25px; flex: 1; max-width: 600px; 
+        }
+
+        .view-controls {
+            display: flex; gap: 8px; width: 100%; max-width: 600px; justify-content: center; margin-bottom: 15px;
+        }
+        .view-btn {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #aaa;
+            padding: 8px 16px; border-radius: 12px; font-size: 0.85rem; cursor: pointer; transition: all 0.2s;
+        }
+        .view-btn.active { background: var(--primary); color: #000; font-weight: 800; border-color: var(--primary); }
+
+        .stream-wrapper { 
+            border-radius: 12px; overflow: hidden; position: relative; 
+            background: #000; box-shadow: 0 15px 40px rgba(0, 0, 0, 0.8), inset 0 0 0 1px var(--border);
+            flex-shrink: 0; transition: all 0.3s ease; margin: 0 auto;
+        }
+        
+        .view-horizontal { width: 100%; max-width: 600px; height: auto; aspect-ratio: 16/9; }
+        .view-vertical { width: auto; height: 50vh; max-height: 500px; aspect-ratio: 9/16; border-radius: 18px; }
+        .view-full { width: 100%; max-width: 600px; height: 55vh; max-height: 600px; aspect-ratio: unset; border-radius: 18px; }
+        
+        .stream-wrapper img { width: 100%; height: 100%; display: block; object-fit: cover; }
+        
+        .live-badge { 
+            position: absolute; top: 15px; left: 15px; 
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+            padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 800; 
+            letter-spacing: 1px; display: flex; align-items: center; border: 1px solid rgba(255,255,255,0.1);
+        }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background-color: var(--danger); margin-right: 8px; box-shadow: 0 0 10px var(--danger); animation: pulse 1.5s infinite; }
+
+        .control-deck {
+            display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 380px; padding: 10px 0; margin-bottom: 20px;
+        }
+
+        .dpad { display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px); gap: 6px; }
+        .dpad button { 
+            background: var(--surface); border: 1px solid var(--border); border-radius: 16px; 
+            color: white; font-size: 1.4rem; cursor: pointer; transition: all 0.2s; backdrop-filter: blur(10px);
+            display: flex; align-items: center; justify-content: center; user-select: none;
+        }
+        .dpad button:active { background: var(--surface-hover); transform: scale(0.9); }
         .up { grid-column: 2; grid-row: 1; }
         .left { grid-column: 1; grid-row: 2; }
-        .center { grid-column: 2; grid-row: 2; background: #4DA8DA; color: #121212; font-size: 1rem; font-weight: bold; }
-        .center:active { background: #3b8ac0; }
+        .center { grid-column: 2; grid-row: 2; font-size: 1rem !important; font-weight: 800; color: var(--primary) !important; border-color: rgba(0, 229, 255, 0.3) !important; }
         .right { grid-column: 3; grid-row: 2; }
         .down { grid-column: 2; grid-row: 3; }
-        
-        .mic-container { margin-left: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .mic-btn { width: 80px; height: 80px; border-radius: 50%; background: #ff3b30; border: none; color: white; font-size: 2rem; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 0 #cc2a20, 0 8px 15px rgba(0,0,0,0.5); transition: all 0.1s; user-select: none; -webkit-touch-callout: none; }
-        .mic-btn:active, .mic-btn.recording { transform: translateY(6px); box-shadow: 0 0 0 #cc2a20, 0 2px 5px rgba(0,0,0,0.5); background: #ff5c53; animation: pulse-mic 1s infinite; }
-        .mic-status { margin-top: 15px; font-size: 0.9rem; color: #aaa; font-weight: bold; letter-spacing: 1px; }
 
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
-        @keyframes pulse-mic { 0% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 59, 48, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0); } }
+        .mic-box { display: flex; flex-direction: column; align-items: center; margin-left: 20px; }
+        .mic-btn { 
+            width: 85px; height: 85px; border-radius: 50%; 
+            background: linear-gradient(135deg, #ff4d6d, var(--danger)); border: none; 
+            color: white; font-size: 2rem; display: flex; align-items: center; justify-content: center; 
+            cursor: pointer; transition: all 0.2s ease; user-select: none; -webkit-touch-callout: none;
+            box-shadow: 0 10px 20px rgba(255, 42, 85, 0.3), inset 0 -4px 0 rgba(0,0,0,0.2);
+        }
+        .mic-btn.recording { 
+            transform: scale(0.95) translateY(4px); 
+            box-shadow: 0 0 30px rgba(255, 42, 85, 0.8), inset 0 2px 0 rgba(0,0,0,0.2); 
+            background: var(--danger); animation: mic-pulse 1s infinite; 
+        }
+        .mic-status { margin-top: 15px; font-size: 0.85rem; color: #888; font-weight: 800; letter-spacing: 2px; }
+
+        /* Modal Settings */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; backdrop-filter: blur(8px); }
+        .modal-content {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -46%); opacity: 0; visibility: hidden;
+            background: #11141c; width: 92%; max-width: 440px; border-radius: 24px;
+            padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); border: 1px solid var(--border);
+            z-index: 101; max-height: 85vh; overflow-y: auto; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            pointer-events: none;
+        }
+        .modal-content.open { transform: translate(-50%, -50%); opacity: 1; visibility: visible; pointer-events: auto; }
         
-        @media (max-width: 600px) {
-            .controls-container { flex-direction: column; gap: 30px; padding: 10px 0; }
-            .mic-container { margin-left: 0; }
-            .dpad { grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px); }
-            .btn { font-size: 1.2rem; }
-            .mic-btn { width: 70px; height: 70px; font-size: 1.5rem; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 15px; margin-bottom: 20px; }
+        .modal-title { font-size: 1.4rem; margin: 0; color: white; font-weight: 800; }
+        .close-btn { background: var(--surface); border: 1px solid var(--border); color: #fff; width: 36px; height: 36px; border-radius: 50%; font-size: 1rem; cursor: pointer; display:grid; place-items:center; }
+
+        .faces-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+        .face-card { background: var(--surface); border-radius: 16px; overflow: hidden; position: relative; border: 1px solid var(--border); }
+        .face-img { width: 100%; height: 140px; object-fit: cover; }
+        .face-name { padding: 12px; font-size: 1rem; font-weight: 600; text-align: center; color: white; }
+        .delete-face { 
+            position: absolute; top: 8px; right: 8px; background: rgba(255, 42, 85, 0.9); border: none; color: white; 
+            border-radius: 50%; width: 28px; height: 28px; cursor: pointer; backdrop-filter: blur(4px); display:grid; place-items:center;
+            font-size: 14px;
+        }
+
+        .add-face-form { background: rgba(0, 229, 255, 0.05); padding: 20px; border-radius: 16px; border: 1px dashed rgba(0, 229, 255, 0.3); }
+        .form-title { margin: 0 0 15px 0; font-size: 1rem; color: var(--primary); font-weight: 600; }
+        .input-name { width: 100%; padding: 14px; border-radius: 10px; border: 1px solid var(--border); background: #090b10; color: white; font-family: inherit; font-size: 1rem; margin-bottom: 12px; }
+        .input-file { font-size: 0.9rem; color: #aaa; margin-bottom: 15px; width: 100%; }
+        .add-btn { width: 100%; background: var(--primary); color: #000; border: none; padding: 14px; border-radius: 10px; font-weight: 800; font-size: 1rem; cursor: pointer; transition: all 0.2s; }
+        .add-btn:active { transform: scale(0.98); }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.2; } 100% { opacity: 1; } }
+        @keyframes mic-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 42, 85, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 42, 85, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 42, 85, 0); } }
+
+        @media (max-width: 380px) {
+            .dpad { grid-template-columns: repeat(3, 50px); grid-template-rows: repeat(3, 50px); }
+            .mic-btn { width: 75px; height: 75px; font-size: 1.5rem; }
+            .stream-wrapper { border-radius: 16px; }
         }
     </style>
 </head>
 <body>
     <header>
-        <h1>AI SENTRY REMOTE</h1>
+        <h1>AI SENTRY</h1>
+        <button class="faces-btn" onclick="openFaceManager()">👥 Known Faces</button>
     </header>
-    
-    <div class="stream-container">
-        <div class="status-badge"><span class="status-indicator"></span> LIVE</div>
-        <img src="/video_feed" alt="Camera Stream Loading...">
-    </div>
 
-    <!-- Secure Context Warning (Microphone availability depends on HTTPS/Localhost) -->
-    <div id="secureWarning" style="display:none; background: #ff3b30; color: white; padding: 10px; margin: 10px; border-radius: 8px; font-size: 0.85rem; text-align: center; max-width: 90%;">
-        ⚠️ <strong>MIC BLOCKED:</strong> Browsers require HTTPS or Localhost for Microphone access.<br>
-        <span style="font-size: 0.75rem; opacity: 0.9;">On Android Chrome, go to <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> and add this IP.</span>
-    </div>
-    
-    <div class="controls-container">
-        <div class="dpad">
-            <button class="btn up" onclick="sendCommand('tilt', 'up')">▲</button>
-            <button class="btn left" onclick="sendCommand('pan', 'left')">◀</button>
-            <button class="btn center" onclick="sendCommand('center', 'reset')">RST</button>
-            <button class="btn right" onclick="sendCommand('pan', 'right')">▶</button>
-            <button class="btn down" onclick="sendCommand('tilt', 'down')">▼</button>
+    <div class="dashboard-main">
+        <div class="view-controls">
+            <button class="view-btn active" onclick="setView('horizontal', this)">Horizontal</button>
+            <button class="view-btn" onclick="setView('vertical', this)">Vertical</button>
+            <button class="view-btn" onclick="setView('full', this)">Full View</button>
         </div>
 
-        <div class="mic-container">
-            <button class="mic-btn" id="micBtn">🎤</button>
-            <div class="mic-status" id="micStatus">HOLD TO SPEAK</div>
+        <div class="stream-wrapper view-horizontal" id="streamWrapper">
+            <div class="live-badge"><div class="dot"></div> LIVE</div>
+            <img src="/video_feed" alt="Establishing Secure Connection...">
         </div>
+        
+        <div class="control-deck">
+            <div class="dpad">
+                <button class="up" id="btn-up" onclick="sendCommand('tilt', 'up', 'btn-up')">▲</button>
+                <button class="left" id="btn-left" onclick="sendCommand('pan', 'left', 'btn-left')">◀</button>
+                <button class="center" id="btn-center" onclick="sendCommand('center', 'reset', 'btn-center')">RST</button>
+                <button class="right" id="btn-right" onclick="sendCommand('pan', 'right', 'btn-right')">▶</button>
+                <button class="down" id="btn-down" onclick="sendCommand('tilt', 'down', 'btn-down')">▼</button>
+            </div>
+            <div class="mic-box">
+                <button class="mic-btn" id="micBtn">🎙️</button>
+                <div class="mic-status" id="micStatus">HOLD TO SPEAK</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Face Manager Modal -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeFaceManager()"></div>
+    <div class="modal-content" id="faceManagerModal">
+        <div class="modal-header">
+            <h2 class="modal-title">Face Database</h2>
+            <button class="close-btn" onclick="closeFaceManager()">✕</button>
+        </div>
+        <div class="faces-grid" id="facesGrid"></div>
+        <form class="add-face-form" onsubmit="uploadFace(event)">
+            <h3 class="form-title">⚡ Train New Target</h3>
+            <input type="text" id="newFaceName" class="input-name" placeholder="Target Name..." required>
+            <input type="file" id="newFaceFile" class="input-file" accept="image/jpeg, image/png" required>
+            <button type="submit" id="submitFaceBtn" class="add-btn">Upload & Train AI</button>
+        </form>
     </div>
 
     <script>
-        // Motor Controls
-        function sendCommand(motor, direction) {
+        // API Calls
+        function sendCommand(motor, direction, btnId) {
+            // Visual tactile feedback for mobile browsers that ignore :active
+            if (btnId) {
+                const btn = document.getElementById(btnId);
+                if (btn) {
+                    btn.style.transform = "scale(0.85)";
+                    btn.style.background = "rgba(255,255,255,0.2)";
+                    setTimeout(() => {
+                        btn.style.transform = "none";
+                        btn.style.background = "rgba(255, 255, 255, 0.03)";
+                    }, 150);
+                }
+            }
+            if (navigator.vibrate) navigator.vibrate(40);
+            
             fetch(`/control/${motor}/${direction}`)
-                .then(response => response.json())
-                .catch(error => console.error('Error:', error));
-            if (navigator.vibrate) navigator.vibrate(50);
+                .then(res => res.json())
+                .catch(err => console.error(err));
         }
 
-        // Secure Context Check (HTTPS/Localhost required for Microphone)
-        const secureWarning = document.getElementById('secureWarning');
-        if (!window.isSecureContext) {
-            secureWarning.style.display = 'block';
-            console.warn("MICROPHONE BLOCKED: Insecure Context. Use HTTPS or Localhost.");
+        // View Toggles
+        function setView(mode, btnEl) {
+            document.getElementById('streamWrapper').className = 'stream-wrapper view-' + mode;
+            document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+            btnEl.classList.add('active');
+            if (navigator.vibrate) navigator.vibrate(30);
         }
 
-        // Voice Commands (Push-to-Talk)
+        // Voice Controls
         const micBtn = document.getElementById('micBtn');
         const micStatus = document.getElementById('micStatus');
-        let mediaRecorder;
-        let audioChunks = [];
-        let isRecording = false;
+        let mediaRecorder, audioChunks = [], isRecording = false;
 
-        // Initialize Microphone
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(stream => {
-                mediaRecorder = new MediaRecorder(stream);
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.addEventListener("dataavailable", ev => audioChunks.push(ev.data));
+            mediaRecorder.addEventListener("stop", () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                audioChunks = [];
+                micStatus.innerText = "TRANSMITTING"; micStatus.style.color = "#00e5ff";
                 
-                mediaRecorder.addEventListener("dataavailable", event => {
-                    audioChunks.push(event.data);
-                });
-
-                mediaRecorder.addEventListener("stop", () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    audioChunks = []; // Reset for next recording
-                    
-                    micStatus.innerText = "SENDING...";
-                    
-                    // Send audio to Python server
-                    const formData = new FormData();
-                    formData.append("audio", audioBlob, "voice_command.webm");
-                    
-                    fetch('/audio_command', {
-                        method: 'POST',
-                        body: formData
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        micStatus.innerText = "HOLD TO SPEAK";
-                        micStatus.style.color = "#aaa";
-                    })
-                    .catch(err => {
-                        console.error(err);
-                        micStatus.innerText = "ERROR SENDING";
-                        micStatus.style.color = "#ff3b30";
-                        setTimeout(() => { micStatus.innerText = "HOLD TO SPEAK"; micStatus.style.color = "#aaa"; }, 2000);
-                    });
-                });
-            })
-            .catch(err => {
-                console.error("Microphone access denied:", err);
-                micStatus.innerText = "MIC ACCESS DENIED";
-                micStatus.style.color = "#ff3b30";
-                
-                // Show warning if denied potentially due to insecure context
-                if (!window.isSecureContext) {
-                    secureWarning.style.display = 'block';
-                }
+                const fd = new FormData(); fd.append("audio", audioBlob, "voice.webm");
+                fetch('/audio_command', { method: 'POST', body: fd })
+                    .then(() => { micStatus.innerText = "HOLD TO SPEAK"; micStatus.style.color = "#888"; })
+                    .catch(() => { micStatus.innerText = "ERROR"; micStatus.style.color = "#ff2a55"; setTimeout(() => { micStatus.innerText = "HOLD TO SPEAK"; micStatus.style.color = "#888"; }, 2000); });
             });
+        }).catch(err => {
+            micStatus.innerText = "ERROR: " + err.name; micStatus.style.color = "#ff2a55";
+            if (err.name === "NotAllowedError") {
+                micStatus.innerText = "MIC PERMISSION DENIED";
+            }
+        });
 
-        // Handle Hold to Record Touch/Mouse Events
         function startRecording(e) {
-            e.preventDefault();
-            if (mediaRecorder && mediaRecorder.state === "inactive") {
-                isRecording = true;
-                mediaRecorder.start();
+            if (e.target === micBtn || e.target.closest('#micBtn')) { e.preventDefault(); }
+            
+            if (!mediaRecorder) {
+                // Tactile fallback if permissions are denied
+                micBtn.style.transform = "scale(0.9)";
+                setTimeout(() => micBtn.style.transform = "none", 150);
+                if (navigator.vibrate) navigator.vibrate(50);
+                return;
+            }
+
+            if (mediaRecorder.state === "inactive") {
+                isRecording = true; mediaRecorder.start();
                 micBtn.classList.add("recording");
-                micStatus.innerText = "RECORDING...";
-                micStatus.style.color = "#ff3b30";
-                if (navigator.vibrate) navigator.vibrate(100);
+                micStatus.innerText = "RECORDING..."; micStatus.style.color = "#ff2a55";
+                if (navigator.vibrate) navigator.vibrate(60);
             }
         }
 
         function stopRecording(e) {
-            e.preventDefault();
             if (mediaRecorder && mediaRecorder.state === "recording") {
-                isRecording = false;
-                mediaRecorder.stop();
+                isRecording = false; mediaRecorder.stop();
                 micBtn.classList.remove("recording");
             }
         }
 
-        // Bind events for both Mouse and Touch screens
         micBtn.addEventListener("mousedown", startRecording);
         micBtn.addEventListener("touchstart", startRecording, {passive: false});
-        
         document.addEventListener("mouseup", stopRecording);
         document.addEventListener("touchend", stopRecording);
+
+        // Face Logic
+        const modal = document.getElementById('faceManagerModal');
+        const overlay = document.getElementById('modalOverlay');
+
+        function openFaceManager() {
+            overlay.style.display = 'block';
+            modal.style.display = 'block';
+            setTimeout(() => { modal.classList.add('open'); }, 10);
+            loadFaces();
+        }
+
+        function closeFaceManager() {
+            modal.classList.remove('open');
+            setTimeout(() => {
+                overlay.style.display = 'none';
+                modal.style.display = 'none';
+            }, 300);
+        }
+
+        function loadFaces() {
+            const grid = document.getElementById('facesGrid');
+            grid.innerHTML = '<div style="color: #777; text-align: center; grid-column: span 2; padding: 20px;">Retrieving Intel...</div>';
+            
+            fetch('/api/faces').then(res => res.json()).then(data => {
+                grid.innerHTML = '';
+                if (!data.faces || data.faces.length === 0) {
+                    grid.innerHTML = '<div style="color: #777; text-align: center; grid-column: span 2; padding: 20px;">No targets recognized.</div>';
+                    return;
+                }
+                data.faces.forEach(f => {
+                    grid.innerHTML += `
+                        <div class="face-card">
+                            <button class="delete-face" onclick="deleteFace('${f.filename}')">✕</button>
+                            <img class="face-img" src="/api/image/known_faces/${f.filename}">
+                            <div class="face-name">${f.name}</div>
+                        </div>`;
+                });
+            }).catch(() => grid.innerHTML = '<div style="color: #ff2a55; text-align: center; grid-column: span 2;">Network Error.</div>');
+        }
+
+        function deleteFace(filename) {
+            if(!confirm("Erase target data?")) return;
+            fetch(`/api/faces/${filename}`, { method: 'DELETE' }).then(res => res.json()).then(data => {
+                if(data.status === 'success') loadFaces(); else alert("Error: " + data.message);
+            });
+        }
+
+        function uploadFace(e) {
+            e.preventDefault();
+            const n = document.getElementById('newFaceName').value, file = document.getElementById('newFaceFile').files[0];
+            if (!n || !file) return;
+            
+            const btn = document.getElementById('submitFaceBtn');
+            btn.innerText = "Training Neural Net...";
+            
+            const fd = new FormData(); fd.append('name', n); fd.append('image', file);
+            fetch('/api/faces', { method: 'POST', body: fd }).then(res => res.json()).then(data => {
+                btn.innerText = "Upload & Train AI";
+                if(data.status === 'success') {
+                    document.getElementById('newFaceName').value = '';
+                    document.getElementById('newFaceFile').value = '';
+                    loadFaces();
+                } else alert("Error: " + data.message);
+            }).catch(() => { btn.innerText = "Upload & Train AI"; alert("Upload failed."); });
+        }
     </script>
 </body>
 </html>
