@@ -166,6 +166,32 @@ def delete_face(filename):
             return jsonify({"status": "error", "message": str(e)}), 500
     return jsonify({"status": "error", "message": "Not found"}), 404
 
+@app.route('/api/intruders', methods=['GET'])
+def list_intruders():
+    intruders = []
+    if os.path.exists('intruders'):
+        files = [f for f in os.listdir('intruders') if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        # Sort descending by modified time
+        files.sort(key=lambda x: os.path.getmtime(os.path.join('intruders', x)), reverse=True)
+        for filename in files:
+            timestamp = os.path.getmtime(os.path.join('intruders', filename))
+            time_str = time.strftime('%b %d, %Y - %I:%M %p', time.localtime(timestamp))
+            intruders.append({"filename": filename, "time": time_str})
+    return jsonify({"status": "success", "intruders": intruders})
+
+@app.route('/api/intruders/<filename>', methods=['DELETE'])
+def delete_intruder(filename):
+    if '..' in filename or not filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+        return jsonify({"status": "error", "message": "Invalid file"}), 400
+    filepath = os.path.join('intruders', filename)
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            return jsonify({"status": "success"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+    return jsonify({"status": "error", "message": "Not found"}), 404
+
 @app.route('/api/faces', methods=['POST'])
 def add_face():
     name = request.form.get('name', '').strip()
@@ -209,6 +235,10 @@ def gen_frames():
         new_w = 800
         new_h = int(h * (new_w / w))
         frame_ready = cv2.resize(frame_copy, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        # Debug Ticker to prove if the stream is live or browser cached
+        import datetime
+        cv2.putText(frame_ready, datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3], (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
         # Optimization: JPEG quality at 65 for a better balance
         ret, buffer = cv2.imencode('.jpg', frame_ready, [cv2.IMWRITE_JPEG_QUALITY, 65])
@@ -468,9 +498,14 @@ class SentryCore:
                             cv2.putText(frame, display_name, (x1 + 6, y2 - 6), cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 1)
 
                 if faces_detected == 0:
-                    self.latest_face_name = "Scanning..."
-                    self.consecutive_unknown_count = 0
-                    update_global_state("idle", "")
+                    missing_count = getattr(self, 'faces_missing_count', 0) + 1
+                    setattr(self, 'faces_missing_count', missing_count)
+                    if missing_count > 15:
+                        self.latest_face_name = "Scanning..."
+                        self.consecutive_unknown_count = 0
+                        update_global_state("idle", "")
+                else:
+                    setattr(self, 'faces_missing_count', 0)
 
                 # Keep a copy of the fully drawn frame for MJPEG Streaming
                 with self.annotated_frame_lock:

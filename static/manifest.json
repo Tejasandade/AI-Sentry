@@ -1,0 +1,17 @@
+{
+  "name": "AI Sentry Dashboard",
+  "short_name": "Sentry",
+  "start_url": "/remote",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#11141c",
+  "theme_color": "#11141c",
+  "icons": [
+    {
+      "src": "/static/icon.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

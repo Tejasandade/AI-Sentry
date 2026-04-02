@@ -4,7 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AI Sentry Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <!-- PWA Setup -->
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#11141c">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <style>
         :root {
             --primary: #00e5ff; /* Cyan */
@@ -116,35 +122,29 @@
 
         /* Modal Settings */
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; backdrop-filter: blur(8px); }
-        .modal-content {
+        .modal {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -46%); opacity: 0; visibility: hidden;
             background: #11141c; width: 92%; max-width: 440px; border-radius: 24px;
             padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); border: 1px solid var(--border);
             z-index: 101; max-height: 85vh; overflow-y: auto; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            pointer-events: none;
+            pointer-events: none; display: none;
         }
-        .modal-content.open { transform: translate(-50%, -50%); opacity: 1; visibility: visible; pointer-events: auto; }
+        .modal.open { transform: translate(-50%, -50%); opacity: 1; visibility: visible; pointer-events: auto; }
         
         .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 15px; margin-bottom: 20px; }
-        .modal-title { font-size: 1.4rem; margin: 0; color: white; font-weight: 800; }
+        .modal-header h3 { font-size: 1.4rem; margin: 0; color: white; font-weight: 800; }
         .close-btn { background: var(--surface); border: 1px solid var(--border); color: #fff; width: 36px; height: 36px; border-radius: 50%; font-size: 1rem; cursor: pointer; display:grid; place-items:center; }
 
-        .faces-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
-        .face-card { background: var(--surface); border-radius: 16px; overflow: hidden; position: relative; border: 1px solid var(--border); }
-        .face-img { width: 100%; height: 140px; object-fit: cover; }
-        .face-name { padding: 12px; font-size: 1rem; font-weight: 600; text-align: center; color: white; }
-        .delete-face { 
+        .list-container { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+        .face-card { background: var(--surface); border-radius: 16px; overflow: hidden; position: relative; border: 1px solid var(--border); padding: 10px; text-align: center; }
+        .face-card img { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; }
+        .delete-btn { 
             position: absolute; top: 8px; right: 8px; background: rgba(255, 42, 85, 0.9); border: none; color: white; 
             border-radius: 50%; width: 28px; height: 28px; cursor: pointer; backdrop-filter: blur(4px); display:grid; place-items:center;
             font-size: 14px;
         }
 
-        .add-face-form { background: rgba(0, 229, 255, 0.05); padding: 20px; border-radius: 16px; border: 1px dashed rgba(0, 229, 255, 0.3); }
-        .form-title { margin: 0 0 15px 0; font-size: 1rem; color: var(--primary); font-weight: 600; }
-        .input-name { width: 100%; padding: 14px; border-radius: 10px; border: 1px solid var(--border); background: #090b10; color: white; font-family: inherit; font-size: 1rem; margin-bottom: 12px; }
-        .input-file { font-size: 0.9rem; color: #aaa; margin-bottom: 15px; width: 100%; }
-        .add-btn { width: 100%; background: var(--primary); color: #000; border: none; padding: 14px; border-radius: 10px; font-weight: 800; font-size: 1rem; cursor: pointer; transition: all 0.2s; }
-        .add-btn:active { transform: scale(0.98); }
+        .upload-zone { border: 2px dashed var(--primary); padding: 30px; border-radius: 16px; text-align: center; cursor: pointer; margin-bottom: 20px; }
 
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.2; } 100% { opacity: 1; } }
         @keyframes mic-pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 42, 85, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 42, 85, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 42, 85, 0); } }
@@ -159,7 +159,10 @@
 <body>
     <header>
         <h1>AI SENTRY</h1>
-        <button class="faces-btn" onclick="openFaceManager()">👥 Known Faces</button>
+        <div style="display: flex; gap: 8px;">
+            <button class="faces-btn" style="background: rgba(255, 42, 85, 0.2); color: #ff2a55;" onclick="openEvidenceLog()">🔴 Logs</button>
+            <button class="faces-btn" onclick="openFaceManager()">👥 Faces</button>
+        </div>
     </header>
 
     <div class="dashboard-main">
@@ -171,8 +174,13 @@
 
         <div class="stream-wrapper view-horizontal" id="streamWrapper">
             <div class="live-badge"><div class="dot"></div> LIVE</div>
-            <img src="/video_feed" alt="Establishing Secure Connection...">
+            <img src="/video_feed" id="videoStreamImage" alt="Establishing Secure Connection...">
         </div>
+        
+        <script>
+            // Break PWA Network Cache Lock
+            document.getElementById('videoStreamImage').src = '/video_feed?bypassCache=' + new Date().getTime();
+        </script>
         
         <div class="control-deck">
             <div class="dpad">
@@ -189,26 +197,49 @@
         </div>
     </div>
 
-    <!-- Face Manager Modal -->
-    <div class="modal-overlay" id="modalOverlay" onclick="closeFaceManager()"></div>
-    <div class="modal-content" id="faceManagerModal">
+    <!-- Modals -->
+    <div class="modal-overlay" id="modalOverlay"></div>
+
+    <div class="modal" id="faceModal">
         <div class="modal-header">
-            <h2 class="modal-title">Face Database</h2>
+            <h3>👥 Manage Known Faces</h3>
             <button class="close-btn" onclick="closeFaceManager()">✕</button>
         </div>
-        <div class="faces-grid" id="facesGrid"></div>
-        <form class="add-face-form" onsubmit="uploadFace(event)">
-            <h3 class="form-title">⚡ Train New Target</h3>
-            <input type="text" id="newFaceName" class="input-name" placeholder="Target Name..." required>
-            <input type="file" id="newFaceFile" class="input-file" accept="image/jpeg, image/png" required>
-            <button type="submit" id="submitFaceBtn" class="add-btn">Upload & Train AI</button>
-        </form>
+        
+        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+            <div style="font-size: 2rem; margin-bottom: 10px;">📸</div>
+            <div style="font-weight: 600;">Tap or Drop Face Image</div>
+            <div style="font-size: 0.85rem; color: #888; margin-top: 5px;">Must clearly show person's whole face</div>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" style="display: none" onchange="handleFileUpload(this.files[0])">
+        
+        <div class="list-container" id="faceList">
+            <!-- Faces go here -->
+        </div>
+    </div>
+
+    <div class="modal" id="evidenceModal">
+        <div class="modal-header">
+            <h3>🔴 Intruder Logs</h3>
+            <button class="close-btn" onclick="closeEvidenceLog()">✕</button>
+        </div>
+        <div class="list-container" id="evidenceList">
+            <!-- Evidence goes here -->
+        </div>
+    </div>
+
+    <!-- Lightbox Modal -->
+    <div id="lightboxOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:200; backdrop-filter:blur(10px);" onclick="closeLightbox()">
+        <div style="position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); width: 100%; text-align: center;">
+            <img id="lightboxImg" style="max-width: 95vw; max-height: 75vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.9); object-fit: contain;">
+            <div id="lightboxText" style="margin-top: 20px; color: white; font-size: 1.1rem; font-weight: 800; background: rgba(255,42,85,0.2); border: 1px solid rgba(255,42,85,0.4); display: inline-block; padding: 8px 20px; border-radius: 20px; letter-spacing: 1px;"></div>
+        </div>
+        <button style="position:absolute; top:20px; right:20px; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:white; width:40px; height:40px; border-radius:50%; font-size:1.2rem; cursor:pointer;" onclick="closeLightbox()">✕</button>
     </div>
 
     <script>
         // API Calls
         function sendCommand(motor, direction, btnId) {
-            // Visual tactile feedback for mobile browsers that ignore :active
             if (btnId) {
                 const btn = document.getElementById(btnId);
                 if (btn) {
@@ -224,6 +255,34 @@
             
             fetch(`/control/${motor}/${direction}`)
                 .then(res => res.json())
+                .catch(err => console.error(err));
+        }
+
+        // Evidence Log Data Fetch
+        function loadEvidence() {
+            const list = document.getElementById('evidenceList');
+            list.innerHTML = '<p style="text-align:center;color:#888;grid-column:span 2;">Scanning logs...</p>';
+            fetch('/api/intruders')
+                .then(res => res.json())
+                .then(data => {
+                    list.innerHTML = '';
+                    if (data.intruders.length === 0) list.innerHTML = '<p style="text-align:center;color:#888;grid-column:span 2;">No intruders logged.</p>';
+                    data.intruders.forEach(ev => {
+                        list.innerHTML += `
+                            <div class="face-card">
+                                <img src="/api/image/intruders/${ev.filename}" alt="Intruder Photo" onclick="openLightbox('${ev.filename}', '${ev.time}')" style="cursor: zoom-in;">
+                                <span style="font-size: 0.8rem; display:block; margin-top:5px;">${ev.time}</span>
+                                <button class="delete-btn" onclick="deleteEvidence('${ev.filename}')">✕</button>
+                            </div>
+                        `;
+                    });
+                }).catch(err => console.error(err));
+        }
+
+        function deleteEvidence(filename) {
+            fetch(`/api/intruders/${filename}`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => { if (data.status === 'success') loadEvidence(); })
                 .catch(err => console.error(err));
         }
 
@@ -255,27 +314,15 @@
             });
         }).catch(err => {
             micStatus.innerText = "ERROR: " + err.name; micStatus.style.color = "#ff2a55";
-            if (err.name === "NotAllowedError") {
-                micStatus.innerText = "MIC PERMISSION DENIED";
-            }
         });
 
         function startRecording(e) {
             if (e.target === micBtn || e.target.closest('#micBtn')) { e.preventDefault(); }
-            
-            if (!mediaRecorder) {
-                // Tactile fallback if permissions are denied
-                micBtn.style.transform = "scale(0.9)";
-                setTimeout(() => micBtn.style.transform = "none", 150);
-                if (navigator.vibrate) navigator.vibrate(50);
-                return;
-            }
-
+            if (!mediaRecorder) return;
             if (mediaRecorder.state === "inactive") {
                 isRecording = true; mediaRecorder.start();
                 micBtn.classList.add("recording");
                 micStatus.innerText = "RECORDING..."; micStatus.style.color = "#ff2a55";
-                if (navigator.vibrate) navigator.vibrate(60);
             }
         }
 
@@ -291,27 +338,55 @@
         document.addEventListener("mouseup", stopRecording);
         document.addEventListener("touchend", stopRecording);
 
-        // Face Logic
-        const modal = document.getElementById('faceManagerModal');
+        // Lightbox Logic
+        function openLightbox(filename, timeStr) {
+            document.getElementById('lightboxImg').src = `/api/image/intruders/${filename}`;
+            document.getElementById('lightboxText').innerText = `DETECTED: ${timeStr}`;
+            document.getElementById('lightboxOverlay').style.display = 'block';
+        }
+        function closeLightbox() {
+            document.getElementById('lightboxOverlay').style.display = 'none';
+        }
+
+        // Modal Logic
         const overlay = document.getElementById('modalOverlay');
+        const faceModal = document.getElementById('faceModal');
+        const evidenceModal = document.getElementById('evidenceModal');
+
+        overlay.addEventListener('click', () => { closeFaceManager(); closeEvidenceLog(); });
+
+        function openEvidenceLog() {
+            overlay.style.display = 'block';
+            evidenceModal.style.display = 'block';
+            setTimeout(() => evidenceModal.classList.add('open'), 10);
+            loadEvidence();
+        }
+
+        function closeEvidenceLog() {
+            evidenceModal.classList.remove('open');
+            setTimeout(() => { evidenceModal.style.display = 'none'; checkOverlay(); }, 300);
+        }
+
+        function checkOverlay() {
+            if (faceModal.style.display !== 'block' && evidenceModal.style.display !== 'block') {
+                overlay.style.display = 'none';
+            }
+        }
 
         function openFaceManager() {
             overlay.style.display = 'block';
-            modal.style.display = 'block';
-            setTimeout(() => { modal.classList.add('open'); }, 10);
+            faceModal.style.display = 'block';
+            setTimeout(() => faceModal.classList.add('open'), 10);
             loadFaces();
         }
 
         function closeFaceManager() {
-            modal.classList.remove('open');
-            setTimeout(() => {
-                overlay.style.display = 'none';
-                modal.style.display = 'none';
-            }, 300);
+            faceModal.classList.remove('open');
+            setTimeout(() => { faceModal.style.display = 'none'; checkOverlay(); }, 300);
         }
 
         function loadFaces() {
-            const grid = document.getElementById('facesGrid');
+            const grid = document.getElementById('faceList');
             grid.innerHTML = '<div style="color: #777; text-align: center; grid-column: span 2; padding: 20px;">Retrieving Intel...</div>';
             
             fetch('/api/faces').then(res => res.json()).then(data => {
@@ -323,9 +398,9 @@
                 data.faces.forEach(f => {
                     grid.innerHTML += `
                         <div class="face-card">
-                            <button class="delete-face" onclick="deleteFace('${f.filename}')">✕</button>
-                            <img class="face-img" src="/api/image/known_faces/${f.filename}">
-                            <div class="face-name">${f.name}</div>
+                            <button class="delete-btn" onclick="deleteFace('${f.filename}')">✕</button>
+                            <img src="/api/image/known_faces/${f.filename}">
+                            <div style="padding: 10px; font-weight: 600;">${f.name}</div>
                         </div>`;
                 });
             }).catch(() => grid.innerHTML = '<div style="color: #ff2a55; text-align: center; grid-column: span 2;">Network Error.</div>');
@@ -338,23 +413,35 @@
             });
         }
 
-        function uploadFace(e) {
-            e.preventDefault();
-            const n = document.getElementById('newFaceName').value, file = document.getElementById('newFaceFile').files[0];
-            if (!n || !file) return;
+        function handleFileUpload(file) {
+            if (!file) return;
+            const n = prompt("Enter Target's Name:");
+            if (!n) return;
             
-            const btn = document.getElementById('submitFaceBtn');
-            btn.innerText = "Training Neural Net...";
+            const btn = document.getElementById('uploadZone');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = `<div style="font-size: 1.5rem; margin-bottom: 10px;">⏳</div><div style="font-weight: 600;">Training Neural Net...</div>`;
             
             const fd = new FormData(); fd.append('name', n); fd.append('image', file);
             fetch('/api/faces', { method: 'POST', body: fd }).then(res => res.json()).then(data => {
-                btn.innerText = "Upload & Train AI";
+                btn.innerHTML = originalHTML;
+                document.getElementById('fileInput').value = '';
                 if(data.status === 'success') {
-                    document.getElementById('newFaceName').value = '';
-                    document.getElementById('newFaceFile').value = '';
                     loadFaces();
                 } else alert("Error: " + data.message);
-            }).catch(() => { btn.innerText = "Upload & Train AI"; alert("Upload failed."); });
+            }).catch(() => { btn.innerHTML = originalHTML; alert("Upload failed."); });
+        }
+
+        // URGENT FIX: Service Workers inherently break infinite MJPEG streams on Android Chrome.
+        // We must unregister it so the browser natively handles the /video_feed stream again.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for(let registration of registrations) {
+                    registration.unregister().then(function(boolean) {
+                        console.log('Service worker unregistered to fix video stream');
+                    });
+                }
+            });
         }
     </script>
 </body>
