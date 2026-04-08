@@ -1,48 +1,42 @@
 #include <ESP32Servo.h>
 
-Servo myServo;
+Servo servo1;
+Servo servo2;
 
-// We plugged the Brown wire (Signal) into Row 8, which is GPIO 14
-const int servoPin = 14; 
+// The exact pins we wired up on the breadboard
+const int servo1Pin = 13; // Row 5, Column j
+const int servo2Pin = 14; // Row 8, Column j
 
 void setup() {
   Serial.begin(115200);
   
-  // Recommended for newer ESP32 Arduino Core versions
+  // Standard ESP32 timer allocation for servos
   ESP32PWM::allocateTimer(0);
   ESP32PWM::allocateTimer(1);
   ESP32PWM::allocateTimer(2);
   ESP32PWM::allocateTimer(3);
   
-  // Standard standard frequency for MG995 is 50Hz
-  myServo.setPeriodHertz(50);      
-  // Attach on pin 14, min/max pulse width for MG995 servo 
-  myServo.attach(servoPin, 500, 2500); 
-  
-  Serial.println("Servo Test Started!");
+  servo1.setPeriodHertz(50); // Standard 50Hz servo
+  servo2.setPeriodHertz(50); 
+
+  // MG995 typical min/max pulse widths are 500 and 2400
+  servo1.attach(servo1Pin, 500, 2400); 
+  servo2.attach(servo2Pin, 500, 2400);
 }
 
 void loop() {
-  // -------------------------------------------------------------------
-  // FOR A 360 CONTINUOUS ROTATION SERVO:
-  // 90 = Stop (Though sometimes it might "creep" and need 89 or 91)
-  // 180 = Full Speed Forward (or backward depending on wiring)
-  // 0 = Full Speed Backward
-  // -------------------------------------------------------------------
-
-  Serial.println("Spinning Full Speed One Way...");
-  myServo.write(180); 
+  Serial.println("Moving to 0 degrees");
+  servo1.write(0);
+  servo2.write(0);
   delay(2000);
 
-  Serial.println("Stopping...");
-  myServo.write(90);
-  delay(2000);
-
-  Serial.println("Spinning Full Speed The Other Way...");
-  myServo.write(0);
+  Serial.println("Moving to 90 degrees");
+  servo1.write(90);
+  servo2.write(90);
   delay(2000);
   
-  Serial.println("Stopping...");
-  myServo.write(90);
-  delay(3000);
+  Serial.println("Moving to 180 degrees");
+  servo1.write(180);
+  servo2.write(180);
+  delay(2000);
 }

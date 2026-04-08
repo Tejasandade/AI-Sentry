@@ -25,17 +25,22 @@ TELEGRAM_BOT_TOKEN = '8616168222:AAGyvjrmS5FoywrP4C3QQNmgbp31Vb1yB1A'
 TELEGRAM_CHAT_ID = '7372624003'
 system_state = {
     "status": "idle",
-    "name": ""
+    "name": "",
+    "hardware": "unconfigured"
 }
 state_lock = threading.Lock()
 global_sentry = None
 
-def update_global_state(status, name=""):
+def update_global_state(status=None, name=None, hardware=None):
     """Thread-safe state update."""
     global system_state
     with state_lock:
-        system_state["status"] = status
-        system_state["name"] = name
+        if status is not None:
+            system_state["status"] = status
+        if name is not None:
+            system_state["name"] = name
+        if hardware is not None:
+            system_state["hardware"] = hardware
 
 
 # =========================================================
@@ -256,8 +261,41 @@ def video_feed():
 
 @app.route('/control/<motor>/<direction>')
 def control_motor(motor, direction):
-    # Dummy motor control logic, to be replaced with actual GPIO or Serial instructions
-    print(f"[*] MOTOR CONTROL -> {motor.upper()} : {direction.upper()}")
+    # Retrieve the state of the sentry
+    if not global_sentry:
+        return jsonify({"status": "error", "message": "System off"})
+        
+    step = 5  # Degrees to move per manual click
+    
+    # Update angles manually
+    if motor == 'pan':
+        if direction == 'left':
+            global_sentry.pan_angle += step
+        elif direction == 'right':
+            global_sentry.pan_angle -= step
+        global_sentry.pan_angle = max(0, min(180, global_sentry.pan_angle))
+        
+    elif motor == 'tilt':
+        if direction == 'up':
+            global_sentry.tilt_angle -= step
+        elif direction == 'down':
+             global_sentry.tilt_angle += step
+        global_sentry.tilt_angle = max(0, min(180, global_sentry.tilt_angle))
+        
+    elif motor == 'center' and direction == 'reset':
+        global_sentry.pan_angle = 90
+        global_sentry.tilt_angle = 90
+
+    # Send the update to the ESP32
+    try:
+        if "XYZ" not in global_sentry.esp32_ip:
+            url = f"http://{global_sentry.esp32_ip}/control?pan={global_sentry.pan_angle}&tilt={global_sentry.tilt_angle}"
+            requests.get(url, timeout=0.5)
+    except Exception as e:
+        print(f"[!] Manual control error: {e}")
+        pass
+        
+    print(f"[*] MOTOR CONTROL -> {motor.upper()} : {direction.upper()} (Pan: {global_sentry.pan_angle}, Tilt: {global_sentry.tilt_angle})")
     return jsonify({"status": "success", "motor": motor, "direction": direction})
 
 @app.route('/audio_command', methods=['POST'])
@@ -391,6 +429,29 @@ class SentryCore:
         self.consecutive_unknown_count = 0
         self.last_capture_time = 0.0
 
+        # Hardware Tracking Dynamics
+        self.esp32_ip = "192.168.0.100" # TO BE CONFIGURED LATER
+        self.pan_angle = 90
+        self.tilt_angle = 90
+        self.last_motor_update = 0.0
+
+        # Start Hardware Heartbeat Thread
+        threading.Thread(target=self.heartbeat_worker, daemon=True).start()
+
+    def heartbeat_worker(self):
+        """Pings the ESP32 to detect if motors have been unplugged or died."""
+        while self.running:
+            if "XYZ" in getattr(self, 'esp32_ip', "XYZ"):
+                update_global_state(hardware="unconfigured")
+            else:
+                try:
+                    # An ultra-fast ping to guarantee it does not stagger execution
+                    requests.get(f"http://{self.esp32_ip}/control", timeout=1.0)
+                    update_global_state(hardware="online")
+                except:
+                    update_global_state(hardware="offline")
+            time.sleep(3.0)
+
     def run(self):
         print("\n[*] Starting Sentry System...")
         print(f"[*] Camera Stream: {self.stream_url}")
@@ -446,6 +507,44 @@ class SentryCore:
                         
                         # Only process valid boxes
                         if (y2 - y1) > 20 and (x2 - x1) > 20:
+                            # --- 1. AUTONOMOUS SERVOS MATH --- 
+                            if faces_detected == 1: # Only track the primary face
+                                cx = x + bw / 2
+                                cy = y + bh / 2
+                                
+                                deadzone_x = w * 0.1
+                                deadzone_y = h * 0.1
+                                pan_changed = tilt_changed = False
+                                
+                                if cx > (w / 2) + deadzone_x:
+                                    self.pan_angle -= 1
+                                    pan_changed = True
+                                elif cx < (w / 2) - deadzone_x:
+                                    self.pan_angle += 1
+                                    pan_changed = True
+                                    
+                                if cy > (h / 2) + deadzone_y:
+                                    self.tilt_angle += 1
+                                    tilt_changed = True
+                                elif cy < (h / 2) - deadzone_y:
+                                    self.tilt_angle -= 1
+                                    tilt_changed = True
+                                    
+                                self.pan_angle = max(0, min(180, self.pan_angle))
+                                self.tilt_angle = max(0, min(180, self.tilt_angle))
+                                
+                                current_time = time.time()
+                                if (pan_changed or tilt_changed) and (current_time - self.last_motor_update > 0.08):
+                                    self.last_motor_update = current_time
+                                    def send_motor_command(pan, tilt):
+                                        try:
+                                            # Only send if user configured their IP
+                                            if "XYZ" not in self.esp32_ip:
+                                                requests.get(f"http://{self.esp32_ip}/control?pan={pan}&tilt={tilt}", timeout=0.15)
+                                        except: pass 
+                                    threading.Thread(target=send_motor_command, args=(self.pan_angle, self.tilt_angle), daemon=True).start()
+                            
+                            # --- 2. FACIAL RECOGNITION PIPELINE ---
                             # 1. Safely send cropped face to deep learning PROCESS over IPC if idle
                             if self.crop_queue.empty():
                                 face_crop = frame[y1:y2, x1:x2].copy()

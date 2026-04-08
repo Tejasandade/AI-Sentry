@@ -54,6 +54,16 @@
         }
         .faces-btn:active { transform: scale(0.95); background: var(--surface-hover); }
 
+        /* --- Hardware Telemetry UI --- */
+        .hardware-status {
+            display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,0.4); font-size: 0.65rem; font-weight: 700; letter-spacing: 1.5px; margin-top: 4px; padding-bottom: 4px;
+        }
+        .status-dot {
+            width: 6px; height: 6px; border-radius: 50%; background: #ffaa00; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .status-dot.online { background: #00ff88; box-shadow: 0 0 10px #00ff88; }
+        .status-dot.offline { background: #ff3366; box-shadow: 0 0 10px #ff3366; }
+
         .dashboard-main {
             display: flex; flex-direction: column; align-items: center; width: 100%; padding: 0 15px; 
             gap: 25px; flex: 1; max-width: 600px; 
@@ -158,7 +168,12 @@
 </head>
 <body>
     <header>
-        <h1>AI SENTRY</h1>
+        <div style="display:flex; flex-direction:column; gap:2px;">
+            <h1 style="line-height:0.9;">AI SENTRY</h1>
+            <div class="hardware-status" id="hwStatus">
+                <span class="status-dot"></span> <span id="hwText">HARDWARE: PENDING</span>
+            </div>
+        </div>
         <div style="display: flex; gap: 8px;">
             <button class="faces-btn" style="background: rgba(255, 42, 85, 0.2); color: #ff2a55;" onclick="openEvidenceLog()">🔴 Logs</button>
             <button class="faces-btn" onclick="openFaceManager()">👥 Faces</button>
@@ -443,6 +458,27 @@
                 }
             });
         }
+
+        // --- Hardware Heartbeat Telemetry Ping ---
+        setInterval(() => {
+            fetch('/state')
+            .then(res => res.json())
+            .then(data => {
+                const hwDot = document.querySelector('#hwStatus .status-dot');
+                const hwText = document.getElementById('hwText');
+                if (data.hardware === 'online') {
+                    hwDot.className = 'status-dot online'; hwText.innerText = 'HARDWARE: ONLINE';
+                } else if (data.hardware === 'offline') {
+                    hwDot.className = 'status-dot offline'; hwText.innerText = 'HARDWARE: OFFLINE';
+                } else {
+                    hwDot.className = 'status-dot'; hwText.innerText = 'HARDWARE: PENDING CONFIG';
+                }
+            }).catch(e => {
+                // Flask Python Crash Handle
+                document.querySelector('#hwStatus .status-dot').className = 'status-dot offline';
+                document.getElementById('hwText').innerText = 'SERVER DISCONNECTED';
+            });
+        }, 3000);
     </script>
 </body>
 </html>
