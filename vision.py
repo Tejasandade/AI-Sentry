@@ -99,7 +99,7 @@ def ai_worker_process(crop_queue, result_queue, known_faces_dir):
             if len(face_encodings) > 0:
                 face_encoding = face_encodings[0]
                 if len(known_face_encodings) > 0:
-                    matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.55)
+                    matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.61)
                     face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
                     best_match_index = np.argmin(face_distances)
                     if matches[best_match_index]:
@@ -277,22 +277,25 @@ def control_motor(motor, direction):
         
     elif motor == 'tilt':
         if direction == 'up':
-            global_sentry.tilt_angle -= step
+            global_sentry.tilt_angle += step
         elif direction == 'down':
-             global_sentry.tilt_angle += step
+             global_sentry.tilt_angle -= step
         global_sentry.tilt_angle = max(0, min(180, global_sentry.tilt_angle))
         
     elif motor == 'center' and direction == 'reset':
         global_sentry.pan_angle = 90
         global_sentry.tilt_angle = 90
 
-    # Send the update to the ESP32
+    # Send the update to the ESP32 via High-Speed UDP Streaming
     try:
-        if "XYZ" not in global_sentry.esp32_ip:
-            url = f"http://{global_sentry.esp32_ip}/control?pan={global_sentry.pan_angle}&tilt={global_sentry.tilt_angle}"
-            requests.get(url, timeout=0.5)
+        if global_sentry.esp32_ip is not None:
+            import socket
+            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            packet = f"P:{global_sentry.pan_angle},T:{global_sentry.tilt_angle}".encode('utf-8')
+            udp_sock.sendto(packet, (global_sentry.esp32_ip, 8888))
+            udp_sock.close()
     except Exception as e:
-        print(f"[!] Manual control error: {e}")
+        print(f"[!] UDP Manual control stream error: {e}")
         pass
         
     print(f"[*] MOTOR CONTROL -> {motor.upper()} : {direction.upper()} (Pan: {global_sentry.pan_angle}, Tilt: {global_sentry.tilt_angle})")
@@ -335,8 +338,17 @@ def send_telegram_alert(filepath):
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
         with open(filepath, 'rb') as photo:
             # Add an Inline Keyboard button to open the Remote Dashboard
-            # Replace 192.168.0.105 with your actual local IP where vision.py is running
-            remote_url = "http://192.168.0.105:5000/remote"
+            # Dynamically get the local IP so the link works across different networks
+            import socket
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+            except:
+                local_ip = "127.0.0.1"
+                
+            remote_url = f"http://{local_ip}:5000/remote"
             
             payload = {
                 'chat_id': TELEGRAM_CHAT_ID, 
@@ -430,27 +442,36 @@ class SentryCore:
         self.last_capture_time = 0.0
 
         # Hardware Tracking Dynamics
-        self.esp32_ip = "192.168.0.100" # TO BE CONFIGURED LATER
+        self.esp32_ip = None # Automatically discovered via UDP
+        self.esp_session = requests.Session() # Reuse TCP connection to prevent socket exhaustion
         self.pan_angle = 90
         self.tilt_angle = 90
         self.last_motor_update = 0.0
 
-        # Start Hardware Heartbeat Thread
-        threading.Thread(target=self.heartbeat_worker, daemon=True).start()
+        # Start Zero-Touch Auto-Discovery Thread
+        threading.Thread(target=self.auto_discovery_worker, daemon=True).start()
 
-    def heartbeat_worker(self):
-        """Pings the ESP32 to detect if motors have been unplugged or died."""
+    def auto_discovery_worker(self):
+        """Listens for the ESP32 UDP Broadcast to instantly learn its IP address."""
+        import socket
+        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp.bind(("", 8888))
+        udp.settimeout(4.0) # If we don't hear a shout for 4 seconds, mark offline
+        
         while self.running:
-            if "XYZ" in getattr(self, 'esp32_ip', "XYZ"):
-                update_global_state(hardware="unconfigured")
-            else:
-                try:
-                    # An ultra-fast ping to guarantee it does not stagger execution
-                    requests.get(f"http://{self.esp32_ip}/control", timeout=1.0)
+            try:
+                data, addr = udp.recvfrom(1024)
+                if data == b"ESP32_SENTRY":
+                    new_ip = addr[0]
+                    if self.esp32_ip != new_ip:
+                        print(f"\n[+] ZERO-TOUCH DISCOVERY: Sentry hardware found at {new_ip}!")
+                        self.esp32_ip = new_ip
                     update_global_state(hardware="online")
-                except:
-                    update_global_state(hardware="offline")
-            time.sleep(3.0)
+            except socket.timeout:
+                update_global_state(hardware="offline")
+                # Don't erase the IP right away, wait to see if it reconnects
+            except Exception:
+                pass
 
     def run(self):
         print("\n[*] Starting Sentry System...")
@@ -477,7 +498,7 @@ class SentryCore:
         mp_face_detection = mp.solutions.face_detection
         
         print("[*] Main Video Loop running seamlessly at target FPS using MediaPipe.")
-        with mp_face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.6) as face_detection:
+        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.55) as face_detection:
             while self.running:
                 ret, frame = cap.read()
                 if not ret or frame is None:
@@ -511,9 +532,8 @@ class SentryCore:
                             if faces_detected == 1: # Only track the primary face
                                 cx = x + bw / 2
                                 cy = y + bh / 2
-                                
-                                deadzone_x = w * 0.1
-                                deadzone_y = h * 0.1
+                                deadzone_x = w * 0.06 # Tighter bounds keep the face strictly centered
+                                deadzone_y = h * 0.06
                                 pan_changed = tilt_changed = False
                                 
                                 if cx > (w / 2) + deadzone_x:
@@ -524,25 +544,28 @@ class SentryCore:
                                     pan_changed = True
                                     
                                 if cy > (h / 2) + deadzone_y:
-                                    self.tilt_angle += 1
+                                    self.tilt_angle -= 1
                                     tilt_changed = True
                                 elif cy < (h / 2) - deadzone_y:
-                                    self.tilt_angle -= 1
+                                    self.tilt_angle += 1
                                     tilt_changed = True
                                     
                                 self.pan_angle = max(0, min(180, self.pan_angle))
                                 self.tilt_angle = max(0, min(180, self.tilt_angle))
                                 
                                 current_time = time.time()
-                                if (pan_changed or tilt_changed) and (current_time - self.last_motor_update > 0.08):
+                                if (pan_changed or tilt_changed) and (current_time - self.last_motor_update > 0.20):
                                     self.last_motor_update = current_time
-                                    def send_motor_command(pan, tilt):
+                                    def stream_udp_command(pan, tilt):
                                         try:
-                                            # Only send if user configured their IP
-                                            if "XYZ" not in self.esp32_ip:
-                                                requests.get(f"http://{self.esp32_ip}/control?pan={pan}&tilt={tilt}", timeout=0.15)
-                                        except: pass 
-                                    threading.Thread(target=send_motor_command, args=(self.pan_angle, self.tilt_angle), daemon=True).start()
+                                            if self.esp32_ip is not None:
+                                                import socket
+                                                udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                                                packet = f"P:{pan},T:{tilt}".encode('utf-8')
+                                                udp_sock.sendto(packet, (self.esp32_ip, 8888))
+                                                udp_sock.close()
+                                        except: pass
+                                    stream_udp_command(self.pan_angle, self.tilt_angle)
                             
                             # --- 2. FACIAL RECOGNITION PIPELINE ---
                             # 1. Safely send cropped face to deep learning PROCESS over IPC if idle
@@ -627,12 +650,51 @@ class SentryCore:
 # =========================================================
 # ENTRY POINT
 # =========================================================
+def find_camera_ip():
+    print("\n[*] Scanning local network for Android Camera (Port 8080)...")
+    import socket
+    import concurrent.futures
+    
+    def get_local_ip():
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except:
+            return "192.168.0.1"
+
+    local_ip = get_local_ip()
+    base_ip = ".".join(local_ip.split('.')[:-1])
+    
+    def check_port(ip):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(1.0)
+            s.connect((ip, 8080))
+            s.close()
+            return ip
+        except:
+            return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+        ips_to_check = [f"{base_ip}.{i}" for i in range(1, 255)]
+        results = executor.map(check_port, ips_to_check)
+        for ip in results:
+            if ip:
+                return f"http://{ip}:8080/video"
+                
+    print("[!] Could not auto-discover camera on port 8080.")
+    return 'http://192.168.0.101:8080/video' # Fallback
+
 if __name__ == '__main__':
     # VERY IMPORTANT ON WINDOWS: Required to prevent infinite multiprocessing loops
     mp_lib.freeze_support()
     
-    # Stream endpoint from Android IP Webcam app
-    camera_stream_url = 'http://192.168.0.102:8080/video'
+    # Intelligently discover the Android IP Webcam URL across any network
+    camera_stream_url = find_camera_ip()
+    print(f"[+] CAMERA DISCOVERY: Linked to video stream at {camera_stream_url}")
     
     # Initialize and run the system
     sentry = SentryCore(stream_url=camera_stream_url)

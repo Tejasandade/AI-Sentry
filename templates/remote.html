@@ -314,22 +314,26 @@
         const micStatus = document.getElementById('micStatus');
         let mediaRecorder, audioChunks = [], isRecording = false;
 
-        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-            mediaRecorder = new MediaRecorder(stream);
-            mediaRecorder.addEventListener("dataavailable", ev => audioChunks.push(ev.data));
-            mediaRecorder.addEventListener("stop", () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                audioChunks = [];
-                micStatus.innerText = "TRANSMITTING"; micStatus.style.color = "#00e5ff";
-                
-                const fd = new FormData(); fd.append("audio", audioBlob, "voice.webm");
-                fetch('/audio_command', { method: 'POST', body: fd })
-                    .then(() => { micStatus.innerText = "HOLD TO SPEAK"; micStatus.style.color = "#888"; })
-                    .catch(() => { micStatus.innerText = "ERROR"; micStatus.style.color = "#ff2a55"; setTimeout(() => { micStatus.innerText = "HOLD TO SPEAK"; micStatus.style.color = "#888"; }, 2000); });
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.addEventListener("dataavailable", ev => audioChunks.push(ev.data));
+                mediaRecorder.addEventListener("stop", () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    audioChunks = [];
+                    micStatus.innerText = "TRANSMITTING"; micStatus.style.color = "#00e5ff";
+                    
+                    const fd = new FormData(); fd.append("audio", audioBlob, "voice.webm");
+                    fetch('/audio_command', { method: 'POST', body: fd })
+                        .then(() => { micStatus.innerText = "HOLD TO SPEAK"; micStatus.style.color = "#888"; })
+                        .catch(() => { micStatus.innerText = "ERROR"; micStatus.style.color = "#ff2a55"; setTimeout(() => { micStatus.innerText = "HOLD TO SPEAK"; micStatus.style.color = "#888"; }, 2000); });
+                });
+            }).catch(err => {
+                micStatus.innerText = "ERROR: " + err.name; micStatus.style.color = "#ff2a55";
             });
-        }).catch(err => {
-            micStatus.innerText = "ERROR: " + err.name; micStatus.style.color = "#ff2a55";
-        });
+        } else {
+            micStatus.innerText = "MIC UNAVAILABLE (HTTP)"; micStatus.style.color = "#888";
+        }
 
         function startRecording(e) {
             if (e.target === micBtn || e.target.closest('#micBtn')) { e.preventDefault(); }
