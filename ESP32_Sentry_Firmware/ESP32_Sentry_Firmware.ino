@@ -16,6 +16,8 @@ Servo tiltServo;
 // REMINDER: Make sure your Tilt servo wire is moved from GPIO 13 to GPIO 27!
 const int panPin = 14;  // GPIO 14
 const int tiltPin = 27; // GPIO 27
+const int greenLED = 12; // Access Granted
+const int redLED = 13;   // Access Denied (Intruder)
 
 // --- Cinematic Smoothing Engine ---
 int currentPan = 90;
@@ -40,6 +42,12 @@ void handleControl() {
 
 void setup() {
   Serial.begin(115200);
+
+  // Security Verification LEDs
+  pinMode(greenLED, OUTPUT);
+  pinMode(redLED, OUTPUT);
+  digitalWrite(greenLED, LOW);
+  digitalWrite(redLED, LOW);
 
   // Servo Timers (ESP32 Specific)
   ESP32PWM::allocateTimer(0);
@@ -108,14 +116,33 @@ void loop() {
       incoming[len] = 0;
       String data = String(incoming);
       
-      // Expected Format: "P:90,T:90"
+      // Expected Format: "P:90,T:90,S:KNOWN"
       if(data.startsWith("P:") && data.indexOf(",T:") > 0) {
         int pIndex = 2;
         int commaIndex = data.indexOf(",T:");
         int tIndex = commaIndex + 3;
+        int sIndex = data.indexOf(",S:");
         
-        targetPan = constrain(data.substring(pIndex, commaIndex).toInt(), 0, 180);
-        targetTilt = constrain(data.substring(tIndex).toInt(), 0, 180);
+        if (sIndex > 0) {
+          targetPan = constrain(data.substring(pIndex, commaIndex).toInt(), 0, 180);
+          targetTilt = constrain(data.substring(tIndex, sIndex).toInt(), 0, 180);
+          
+          String state = data.substring(sIndex + 3);
+          if (state == "KNOWN") {
+             digitalWrite(greenLED, HIGH);
+             digitalWrite(redLED, LOW);
+          } else if (state == "UNKNOWN" || state == "FIRING") {
+             digitalWrite(greenLED, LOW);
+             digitalWrite(redLED, HIGH);
+          } else {
+             digitalWrite(greenLED, LOW);
+             digitalWrite(redLED, LOW);
+          }
+        } else {
+          // Fallback if state is missing
+          targetPan = constrain(data.substring(pIndex, commaIndex).toInt(), 0, 180);
+          targetTilt = constrain(data.substring(tIndex).toInt(), 0, 180);
+        }
       }
     }
   }

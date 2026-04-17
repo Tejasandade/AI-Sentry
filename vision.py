@@ -291,7 +291,8 @@ def control_motor(motor, direction):
         if global_sentry.esp32_ip is not None:
             import socket
             udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            packet = f"P:{global_sentry.pan_angle},T:{global_sentry.tilt_angle}".encode('utf-8')
+            state_str = system_state.get('status', 'IDLE').upper()
+            packet = f"P:{global_sentry.pan_angle},T:{global_sentry.tilt_angle},S:{state_str}".encode('utf-8')
             udp_sock.sendto(packet, (global_sentry.esp32_ip, 8888))
             udp_sock.close()
     except Exception as e:
@@ -437,7 +438,7 @@ class SentryCore:
         self.running = True
         
         # Security/Logic Parameters
-        self.intruder_grace_frames = 15
+        self.intruder_grace_frames = 5
         self.consecutive_unknown_count = 0
         self.last_capture_time = 0.0
 
@@ -532,8 +533,8 @@ class SentryCore:
                             if faces_detected == 1: # Only track the primary face
                                 cx = x + bw / 2
                                 cy = y + bh / 2
-                                deadzone_x = w * 0.06 # Tighter bounds keep the face strictly centered
-                                deadzone_y = h * 0.06
+                                deadzone_x = w * 0.12 # Wider deadzone stops micro-oscillation "bouncing" 
+                                deadzone_y = h * 0.12
                                 pan_changed = tilt_changed = False
                                 
                                 if cx > (w / 2) + deadzone_x:
@@ -561,7 +562,8 @@ class SentryCore:
                                             if self.esp32_ip is not None:
                                                 import socket
                                                 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                                                packet = f"P:{pan},T:{tilt}".encode('utf-8')
+                                                state_str = system_state.get('status', 'IDLE').upper()
+                                                packet = f"P:{pan},T:{tilt},S:{state_str}".encode('utf-8')
                                                 udp_sock.sendto(packet, (self.esp32_ip, 8888))
                                                 udp_sock.close()
                                         except: pass
@@ -622,7 +624,7 @@ class SentryCore:
                 if faces_detected == 0:
                     missing_count = getattr(self, 'faces_missing_count', 0) + 1
                     setattr(self, 'faces_missing_count', missing_count)
-                    if missing_count > 15:
+                    if missing_count > 3:
                         self.latest_face_name = "Scanning..."
                         self.consecutive_unknown_count = 0
                         update_global_state("idle", "")

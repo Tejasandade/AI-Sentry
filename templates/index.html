@@ -286,15 +286,37 @@
         }
 
         .status-text {
-            font-size: 3rem;
+            font-size: 1.5rem;
             font-weight: bold;
-            letter-spacing: 4px;
+            letter-spacing: 6px;
             text-align: center;
-            text-shadow: 0 0 30px currentColor;
+            text-shadow: 0 0 20px currentColor;
             transition: all 0.3s;
             z-index: 5;
             text-transform: uppercase;
+            margin-top: 30px;
         }
+
+        /* ================= SCI-FI HUD ================= */
+        .hud-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 8;
+        }
+        
+        .hud-element {
+            position: absolute;
+            font-size: 0.8rem;
+            opacity: 0.7;
+            text-shadow: 0 0 5px currentColor;
+        }
+        .top-left { top: 30px; left: 30px; border-left: 2px solid; padding-left: 10px; }
+        .top-right { top: 30px; right: 30px; text-align: right; border-right: 2px solid; padding-right: 10px; }
+        .bottom-left { bottom: 30px; left: 30px; }
+        .bottom-right { bottom: 30px; right: 30px; text-align: right; }
+        
+        /* Removed crosshair circle */
 
         /* Scanline effect */
         .scanlines {
@@ -328,6 +350,24 @@
 <body class="state-idle" id="body-state">
     <div class="scanlines"></div>
     <div id="audio-prompt">Tap anywhere to Enable Audio & Fullscreen</div>
+
+    <div class="hud-overlay">
+        <div class="hud-element top-left">
+            <span id="coord-x">PAN: 090.00°</span><br>
+            <span id="coord-y">TLT: 090.00°</span>
+        </div>
+        <div class="hud-element top-right">
+            <span>SYS: ONLINE</span><br>
+            <span id="hud-threat">TRT: IDLE</span>
+        </div>
+        <div class="hud-element bottom-left">
+            <span id="sys-pwr">PWR: 98% (STABLE)</span>
+        </div>
+        <div class="hud-element bottom-right">
+            <span>AI: SENTRY-CORE v2.1</span><br>
+            <span>UPLINK: SECURE</span>
+        </div>
+    </div>
 
     <div class="face-container">
         <div class="eye"></div>
@@ -481,6 +521,18 @@
                         }, 3000); // 3-second warning grace period
                     }
                 }
+                
+                // HUD Math Updates
+                document.getElementById('hud-threat').innerText = `TRT: ${data.status.toUpperCase()}`;
+                document.getElementById('coord-x').innerText = `PAN: ${(Math.random() * 2 + 89).toFixed(2)}°`;
+                document.getElementById('coord-y').innerText = `TLT: ${(Math.random() * 2 + 89).toFixed(2)}°`;
+                
+                if (data.status === 'firing') {
+                   document.getElementById('sys-pwr').innerText = `PWR: ${(Math.random() * 20 + 40).toFixed(1)}% (DRAIN)`;
+                } else {
+                   document.getElementById('sys-pwr').innerText = `PWR: 98% (STABLE)`;
+                }
+                
             } catch (error) {
                 console.error("Error fetching state:", error);
                 if (currentStatus !== 'offline') {
