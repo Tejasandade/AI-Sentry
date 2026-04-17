@@ -441,6 +441,8 @@ class SentryCore:
         self.intruder_grace_frames = 5
         self.consecutive_unknown_count = 0
         self.last_capture_time = 0.0
+        self.last_face_time = time.time()
+        self.patrol_direction = 1
 
         # Hardware Tracking Dynamics
         self.esp32_ip = None # Automatically discovered via UDP
@@ -627,9 +629,39 @@ class SentryCore:
                     if missing_count > 3:
                         self.latest_face_name = "Scanning..."
                         self.consecutive_unknown_count = 0
-                        update_global_state("idle", "")
+                        
+                        # Trigger Sentinel Patrol Mode after 5 seconds
+                        time_since_face = time.time() - getattr(self, 'last_face_time', time.time())
+                        if time_since_face > 5.0:
+                            update_global_state("patrol", "")
+                            
+                            current_time = time.time()
+                            # Check if it's time to snap to a new waypoint glance
+                            if current_time > getattr(self, 'next_patrol_move_time', 0):
+                                import random
+                                # Generate erratic waypoint for cinematic snap
+                                self.pan_angle = random.randint(30, 150)
+                                self.tilt_angle = random.randint(75, 105)
+                                
+                                # Sentry holds this pose and examines area for 1 to 2.5 seconds
+                                self.next_patrol_move_time = current_time + random.uniform(1.0, 2.5)
+                                
+                                def stream_udp_command(pan, tilt):
+                                    try:
+                                        if self.esp32_ip is not None:
+                                            import socket
+                                            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                                            # We send S:IDLE so the LEDs turn off while simply patrolling
+                                            packet = f"P:{pan},T:{tilt},S:IDLE".encode('utf-8')
+                                            udp_sock.sendto(packet, (self.esp32_ip, 8888))
+                                            udp_sock.close()
+                                    except: pass
+                                stream_udp_command(self.pan_angle, self.tilt_angle)
+                        else:
+                            update_global_state("idle", "")
                 else:
                     setattr(self, 'faces_missing_count', 0)
+                    self.last_face_time = time.time()
 
                 # Keep a copy of the fully drawn frame for MJPEG Streaming
                 with self.annotated_frame_lock:

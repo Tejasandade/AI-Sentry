@@ -49,6 +49,20 @@
             animation: blink 4s infinite, look-around 10s infinite;
         }
 
+        /* 1.5 PATROL (Sweeping Mode - Yellow) */
+        .state-patrol {
+            color: #ffea00;
+            background-color: #1a1a00;
+        }
+
+        .state-patrol .eye {
+            background-color: #ffea00;
+            box-shadow: 0 0 60px rgba(255, 234, 0, 0.6);
+            height: 180px; /* Wide, focused look */
+            transform: scale(0.9);
+            animation: look-around 2s infinite linear;
+        }
+
         /* 2. KNOWN (Friendly & Happy) */
         .state-known {
             color: #39ff14;
@@ -488,8 +502,10 @@
 
                     if (data.status === 'idle') {
                         statusMsg.innerText = "Scanning Area...";
-                        // Usually we don't speak on idle to avoid being annoying, but we could.
 
+                    } else if (data.status === 'patrol') {
+                        statusMsg.innerText = "AUTO-PATROL ENGAGED ...";
+                        
                     } else if (data.status === 'known') {
                         statusMsg.innerText = `Welcome, ${data.name}!`;
                         robotSpeak(`Welcome back, ${data.name}. Access granted.`, 'friendly');
