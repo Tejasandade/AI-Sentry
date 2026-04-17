@@ -175,6 +175,7 @@
             </div>
         </div>
         <div style="display: flex; gap: 8px;">
+            <button class="faces-btn" id="patrolToggleBtn" style="background: rgba(0, 229, 255, 0.2); color: #00e5ff;" onclick="togglePatrol()">🔄 Patrol: ON</button>
             <button class="faces-btn" style="background: rgba(255, 42, 85, 0.2); color: #ff2a55;" onclick="openEvidenceLog()">🔴 Logs</button>
             <button class="faces-btn" onclick="openFaceManager()">👥 Faces</button>
         </div>
@@ -254,6 +255,24 @@
 
     <script>
         // API Calls
+        function togglePatrol() {
+            fetch('/toggle_patrol', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    const btn = document.getElementById('patrolToggleBtn');
+                    if(data.state === 'enabled') {
+                        btn.innerHTML = '🔄 Patrol: ON';
+                        btn.style.background = 'rgba(0, 229, 255, 0.2)';
+                        btn.style.color = '#00e5ff';
+                    } else {
+                        btn.innerHTML = '⏸ Patrol: OFF';
+                        btn.style.background = 'rgba(255, 255, 255, 0.1)';
+                        btn.style.color = '#888';
+                    }
+                    if (navigator.vibrate) navigator.vibrate(30);
+                }).catch(err => console.error(err));
+        }
+
         function sendCommand(motor, direction, btnId) {
             if (btnId) {
                 const btn = document.getElementById(btnId);

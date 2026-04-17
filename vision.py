@@ -65,13 +65,31 @@ def ai_worker_process(crop_queue, result_queue, known_faces_dir):
                     filepath = os.path.join(known_faces_dir, filename)
                     name = os.path.splitext(filename)[0]
                     try:
-                        image = face_recognition.load_image_file(filepath)
-                        encodings = face_recognition.face_encodings(image)
+                        # Load and convert to a clean uint8 RGB array (dlib is strict about this)
+                        raw = face_recognition.load_image_file(filepath)
+                        img_array = np.array(raw, dtype=np.uint8)
+                        # Strip alpha channel if present (RGBA -> RGB)
+                        if img_array.ndim == 3 and img_array.shape[2] == 4:
+                            img_array = img_array[:, :, :3]
+                        # Downscale large images — dlib fails silently on images > ~1200px
+                        h, w = img_array.shape[:2]
+                        max_dim = 800
+                        if max(h, w) > max_dim:
+                            scale = max_dim / max(h, w)
+                            new_w, new_h = int(w * scale), int(h * scale)
+                            import cv2 as _cv2
+                            img_array = _cv2.resize(img_array, (new_w, new_h), interpolation=_cv2.INTER_AREA)
+                        # Ensure contiguous memory layout
+                        img_array = np.ascontiguousarray(img_array)
+                        encodings = face_recognition.face_encodings(img_array)
                         if len(encodings) > 0:
                             known_face_encodings.append(encodings[0])
                             known_face_names.append(name)
+                            print(f"[AI Process] ✓ Loaded face: {name}")
+                        else:
+                            print(f"[AI Process] ✗ No face detected in: {filename} (check the photo has a clear face)")
                     except Exception as e:
-                        pass
+                        print(f"[AI Process] ✗ Error loading {filename}: {e}")
         print(f"[AI Process] Loaded {len(known_face_names)} faces.")
         
     load_faces()
@@ -111,6 +129,10 @@ def ai_worker_process(crop_queue, result_queue, known_faces_dir):
                 except:
                     pass
             result_queue.put(name)
+            
+            # [CRITICAL LAG FIX] Prevent dlib from back-to-back CPU starvation of the main thread
+            import time
+            time.sleep(0.08)
         except Exception:
             pass
 
@@ -299,8 +321,29 @@ def control_motor(motor, direction):
         print(f"[!] UDP Manual control stream error: {e}")
         pass
         
+    global_sentry.last_manual_control_time = time.time()
     print(f"[*] MOTOR CONTROL -> {motor.upper()} : {direction.upper()} (Pan: {global_sentry.pan_angle}, Tilt: {global_sentry.tilt_angle})")
     return jsonify({"status": "success", "motor": motor, "direction": direction})
+
+@app.route('/toggle_patrol', methods=['POST'])
+def toggle_patrol():
+    if not global_sentry:
+        return jsonify({"status": "error", "message": "System off"})
+    global_sentry.patrol_enabled = not getattr(global_sentry, 'patrol_enabled', True)
+    state = "enabled" if global_sentry.patrol_enabled else "disabled"
+    if not global_sentry.patrol_enabled:
+        # Snap out of patrol mode instantly when toggled off
+        import urllib.request
+        try:
+            if global_sentry.esp32_ip is not None:
+                import socket
+                udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                packet = f"P:{global_sentry.pan_angle},T:{global_sentry.tilt_angle},S:IDLE".encode('utf-8')
+                udp_sock.sendto(packet, (global_sentry.esp32_ip, 8888))
+                udp_sock.close()
+        except: pass
+    return jsonify({"status": "success", "state": state})
+
 
 @app.route('/audio_command', methods=['POST'])
 def audio_command():
@@ -375,35 +418,55 @@ def run_flask_server():
 # VIDEO STREAM HANDLING
 # =========================================================
 class VideoStreamWidget:
-    """Reads frames in a background thread to prevent buffer delays."""
+    """Reads discrete frames in a background thread to completely eliminate all stream buffering."""
     def __init__(self, src=0):
-        self.capture = cv2.VideoCapture(src)
-        
-        # CRITICAL FIX FOR LAG: Minimize the internal OpenCV buffer size!
-        # If the buffer queue is full, OpenCV gives us old frames instead of the current one.
-        self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
-        self.status, self.frame = self.capture.read()
+        self.src = src
+        self.frame = None
+        self.status = False
         self.running = True
+        
+        if not str(self.src).endswith('/video'):
+            self.capture = cv2.VideoCapture(src)
+            self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self.status, self.frame = self.capture.read()
         
         self.thread = threading.Thread(target=self.update, args=())
         self.thread.daemon = True
         self.thread.start()
 
     def update(self):
-        while self.running:
-            if self.capture.isOpened():
-                self.status, self.frame = self.capture.read()
-            else:
-                self.running = False
+        import urllib.request
+        import numpy as np
+        if str(self.src).endswith('/video'):
+            # Convert /video to /shot.jpg for absolute 0ms latency!
+            shot_url = self.src.replace('/video', '/shot.jpg')
+            while self.running:
+                try:
+                    req = urllib.request.urlopen(shot_url, timeout=2.0)
+                    img_np = np.frombuffer(req.read(), dtype=np.uint8)
+                    frame = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
+                    if frame is not None:
+                        self.frame = frame
+                        self.status = True
+                except Exception as e:
+                    print(f"[!] Camera Polling Error: {e}")
+                    time.sleep(0.5)
+        else:
+            # Continually empty the OpenCV buffer so we always have the freshest frame!
+            while self.running:
+                if self.capture.isOpened():
+                    self.status, self.frame = self.capture.read()
+                else:
+                    self.running = False
 
     def read(self):
         return self.status, self.frame
 
     def release(self):
         self.running = False
-        self.thread.join()
-        self.capture.release()
+        self.thread.join(timeout=2.0)
+        if hasattr(self, 'capture'):
+            self.capture.release()
 
 # =========================================================
 # SENTRY CORE LOGIC
@@ -414,7 +477,7 @@ class SentryCore:
         global_sentry = self
         
         self.stream_url = stream_url
-        self.known_faces_dir = known_faces_dir
+        self.known_faces_dir = os.path.abspath(known_faces_dir)
         
         # Multiprocessing IPC Queues
         self.crop_queue = mp_lib.Queue(maxsize=1)
@@ -443,6 +506,8 @@ class SentryCore:
         self.last_capture_time = 0.0
         self.last_face_time = time.time()
         self.patrol_direction = 1
+        self.patrol_enabled = True
+        self.last_manual_control_time = 0.0
 
         # Hardware Tracking Dynamics
         self.esp32_ip = None # Automatically discovered via UDP
@@ -501,7 +566,7 @@ class SentryCore:
         mp_face_detection = mp.solutions.face_detection
         
         print("[*] Main Video Loop running seamlessly at target FPS using MediaPipe.")
-        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.55) as face_detection:
+        with mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.40) as face_detection:
             while self.running:
                 ret, frame = cap.read()
                 if not ret or frame is None:
@@ -539,37 +604,48 @@ class SentryCore:
                                 deadzone_y = h * 0.12
                                 pan_changed = tilt_changed = False
                                 
-                                if cx > (w / 2) + deadzone_x:
-                                    self.pan_angle -= 1
-                                    pan_changed = True
-                                elif cx < (w / 2) - deadzone_x:
-                                    self.pan_angle += 1
+                                error_x = cx - (w / 2)
+                                error_y = cy - (h / 2)
+                                
+                                if abs(error_x) > deadzone_x:
+                                    # Proportional Speed: move faster (up to 5 deg/tick) if face is far from center!
+                                    step_x = max(1, int(abs(error_x) / (w/2) * 5))
+                                    if error_x > 0:
+                                        self.pan_angle -= step_x
+                                    else:
+                                        self.pan_angle += step_x
                                     pan_changed = True
                                     
-                                if cy > (h / 2) + deadzone_y:
-                                    self.tilt_angle -= 1
-                                    tilt_changed = True
-                                elif cy < (h / 2) - deadzone_y:
-                                    self.tilt_angle += 1
+                                if abs(error_y) > deadzone_y:
+                                    step_y = max(1, int(abs(error_y) / (h/2) * 5))
+                                    if error_y > 0:
+                                        self.tilt_angle -= step_y
+                                    else:
+                                        self.tilt_angle += step_y
                                     tilt_changed = True
                                     
                                 self.pan_angle = max(0, min(180, self.pan_angle))
                                 self.tilt_angle = max(0, min(180, self.tilt_angle))
                                 
                                 current_time = time.time()
-                                if (pan_changed or tilt_changed) and (current_time - self.last_motor_update > 0.20):
+                                current_state_str = system_state.get('status', 'IDLE').upper()
+                                state_changed = getattr(self, 'last_sent_state', '') != current_state_str
+                                
+                                # [CRITICAL] Update motors much faster (every 80ms instead of 200ms) for smooth tracking
+                                if (pan_changed or tilt_changed or state_changed) and (current_time - self.last_motor_update > 0.08):
                                     self.last_motor_update = current_time
-                                    def stream_udp_command(pan, tilt):
+                                    self.last_sent_state = current_state_str
+                                    def stream_udp_command(pan, tilt, state):
                                         try:
                                             if self.esp32_ip is not None:
                                                 import socket
                                                 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                                                state_str = system_state.get('status', 'IDLE').upper()
-                                                packet = f"P:{pan},T:{tilt},S:{state_str}".encode('utf-8')
+                                                packet = f"P:{pan},T:{tilt},S:{state}".encode('utf-8')
                                                 udp_sock.sendto(packet, (self.esp32_ip, 8888))
                                                 udp_sock.close()
                                         except: pass
-                                    stream_udp_command(self.pan_angle, self.tilt_angle)
+                                    # [CRITICAL LAG FIX] Do not block main loop on synchronous UDP send
+                                    threading.Thread(target=stream_udp_command, args=(self.pan_angle, self.tilt_angle, current_state_str), daemon=True).start()
                             
                             # --- 2. FACIAL RECOGNITION PIPELINE ---
                             # 1. Safely send cropped face to deep learning PROCESS over IPC if idle
@@ -630,9 +706,11 @@ class SentryCore:
                         self.latest_face_name = "Scanning..."
                         self.consecutive_unknown_count = 0
                         
-                        # Trigger Sentinel Patrol Mode after 5 seconds
+                        # Trigger Sentinel Patrol Mode after 5 seconds of no face AND no manual input in 10 seconds
                         time_since_face = time.time() - getattr(self, 'last_face_time', time.time())
-                        if time_since_face > 5.0:
+                        time_since_manual = time.time() - getattr(self, 'last_manual_control_time', 0.0)
+                        
+                        if getattr(self, 'patrol_enabled', True) and time_since_face > 5.0 and time_since_manual > 10.0:
                             update_global_state("patrol", "")
                             
                             current_time = time.time()
@@ -645,6 +723,7 @@ class SentryCore:
                                 
                                 # Sentry holds this pose and examines area for 1 to 2.5 seconds
                                 self.next_patrol_move_time = current_time + random.uniform(1.0, 2.5)
+                                self.last_sent_state = "IDLE"
                                 
                                 def stream_udp_command(pan, tilt):
                                     try:
@@ -656,9 +735,23 @@ class SentryCore:
                                             udp_sock.sendto(packet, (self.esp32_ip, 8888))
                                             udp_sock.close()
                                     except: pass
-                                stream_udp_command(self.pan_angle, self.tilt_angle)
+                                # [CRITICAL LAG FIX] Do not block main loop on synchronous UDP send
+                                threading.Thread(target=stream_udp_command, args=(self.pan_angle, self.tilt_angle), daemon=True).start()
                         else:
                             update_global_state("idle", "")
+                            # Ensure LEDs turn off if we go idle but patrol is disabled or cooling down
+                            if getattr(self, 'last_sent_state', '') != "IDLE":
+                                self.last_sent_state = "IDLE"
+                                def stream_udp_command(pan, tilt):
+                                    try:
+                                        if self.esp32_ip is not None:
+                                            import socket
+                                            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                                            packet = f"P:{pan},T:{tilt},S:IDLE".encode('utf-8')
+                                            udp_sock.sendto(packet, (self.esp32_ip, 8888))
+                                            udp_sock.close()
+                                    except: pass
+                                threading.Thread(target=stream_udp_command, args=(self.pan_angle, self.tilt_angle), daemon=True).start()
                 else:
                     setattr(self, 'faces_missing_count', 0)
                     self.last_face_time = time.time()
