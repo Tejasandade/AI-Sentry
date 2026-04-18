@@ -40,6 +40,10 @@ void handleControl() {
   server.send(200, "application/json", "{\"status\":\"ok\"}");
 }
 
+void handlePing() {
+  server.send(200, "application/json", "{\"status\":\"sentry_alive\"}");
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -65,9 +69,14 @@ void setup() {
   panServo.write(currentPan);
   tiltServo.write(currentTilt);
 
+  // Critical fix for switching networks dynamically
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true);
+  delay(100);
+
   // Auto-Connection List: It will magically pick whichever is nearby
   wifiMulti.addAP("Dracarys", "Vhagar1210");  // Multi-Net: Home
-  wifiMulti.addAP("galaxy", "11111212");      // Multi-Net: College Hotspot
+  wifiMulti.addAP("Galaxy", "11111212");      // Multi-Net: College Hotspot
 
   Serial.println("Connecting to WiFi...");
   while (wifiMulti.run() != WL_CONNECTED) {
@@ -83,6 +92,7 @@ void setup() {
 
   // Setup API Endpoint
   server.on("/control", HTTP_GET, handleControl);
+  server.on("/ping", HTTP_GET, handlePing);
   server.begin();
   Serial.println("HTTP Server Started!");
 

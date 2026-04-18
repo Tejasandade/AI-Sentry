@@ -42,6 +42,52 @@ def update_global_state(status=None, name=None, hardware=None):
         if hardware is not None:
             system_state["hardware"] = hardware
 
+def get_local_ip():
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "127.0.0.1"
+
+def telegram_polling_thread():
+    print("[*] Starting Telegram Bot listener...")
+    offset = None
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+            params = {"timeout": 30}
+            if offset:
+                params["offset"] = offset
+            response = requests.get(url, params=params, timeout=35)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("ok"):
+                    for update in data.get("result", []):
+                        offset = update["update_id"] + 1
+                        message = update.get("message")
+                        if message and "text" in message:
+                            text = message["text"].strip()
+                            chat_id = message["chat"]["id"]
+                            if text == "/ip" or text == "/status":
+                                local_ip = get_local_ip()
+                                msg = "🤖 *AI Sentry Network Status*\n\n"
+                                msg += f"😐 *Emo Face UI:* http://{local_ip}:5000/\n"
+                                msg += f"📱 *Remote Dashboard:* http://{local_ip}:5000/remote\n"
+                                if global_sentry and getattr(global_sentry, 'esp32_ip', None):
+                                    msg += f"⚙️ *Hardware IP:* {global_sentry.esp32_ip}\n"
+                                else:
+                                    msg += f"⚙️ *Hardware:* OFFLINE\n"
+                                
+                                send_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                                requests.post(send_url, json={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"})
+        except Exception as e:
+            pass
+        time.sleep(1)
+
 
 # =========================================================
 # AI WORKER PROCESS (Bypasses Python GIL completely)
@@ -359,6 +405,9 @@ def audio_command():
     audio_file.save(filepath)
     print(f"[*] Received Voice Command: {filepath}")
     
+    with state_lock:
+        system_state["audio_timestamp"] = int(time.time() * 1000)
+    
     # Play the audio asynchronously so we don't block the server
     def play_audio():
         try:
@@ -375,6 +424,14 @@ def audio_command():
     
     return jsonify({"status": "success", "message": "Audio received and playing"})
 
+@app.route('/latest_audio')
+def latest_audio():
+    filepath = os.path.join(os.getcwd(), 'last_command.webm')
+    if os.path.exists(filepath):
+        from flask import send_file
+        return send_file(filepath, mimetype="audio/webm")
+    return "Not found", 404
+
 def send_telegram_alert(filepath):
     """Sends a photo to Telegram."""
     print(f"[*] Sending Telegram Alert to {TELEGRAM_CHAT_ID}...")
@@ -383,14 +440,7 @@ def send_telegram_alert(filepath):
         with open(filepath, 'rb') as photo:
             # Add an Inline Keyboard button to open the Remote Dashboard
             # Dynamically get the local IP so the link works across different networks
-            import socket
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                s.connect(("8.8.8.8", 80))
-                local_ip = s.getsockname()[0]
-                s.close()
-            except:
-                local_ip = "127.0.0.1"
+            local_ip = get_local_ip()
                 
             remote_url = f"http://{local_ip}:5000/remote"
             
@@ -522,6 +572,8 @@ class SentryCore:
     def auto_discovery_worker(self):
         """Listens for the ESP32 UDP Broadcast to instantly learn its IP address."""
         import socket
+        import concurrent.futures
+        import requests
         udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp.bind(("", 8888))
         udp.settimeout(4.0) # If we don't hear a shout for 4 seconds, mark offline
@@ -536,21 +588,66 @@ class SentryCore:
                         self.esp32_ip = new_ip
                     update_global_state(hardware="online")
             except socket.timeout:
-                update_global_state(hardware="offline")
-                # Don't erase the IP right away, wait to see if it reconnects
+                current_time = time.time()
+                
+                # If UDP broadcast is dropping but we know the IP, verify via Unicast HTTP ping
+                if self.esp32_ip is not None:
+                    try:
+                        resp = requests.get(f"http://{self.esp32_ip}/ping", timeout=2.0)
+                        if resp.status_code == 200 and "sentry_alive" in resp.text:
+                            update_global_state(hardware="online")
+                            continue # Still alive via Unicast!
+                    except:
+                        pass
+                    # If it failed HTTP verification too, it's truly offline
+                    self.esp32_ip = None
+                    
+                # Fallback: Active Unicast HTTP Sweep (bypasses Mobile Hotspot isolation)
+                if self.esp32_ip is None and (current_time - getattr(self, 'last_http_scan', 0) > 15):
+                    self.last_http_scan = current_time
+                    local_ip = get_local_ip()
+                    base_ip = ".".join(local_ip.split('.')[:-1])
+                    
+                    def check_ip(ip):
+                        try:
+                            resp = requests.get(f"http://{ip}/ping", timeout=1.0)
+                            if resp.status_code == 200 and "sentry_alive" in resp.text:
+                                return ip
+                        except:
+                            return None
+                            
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+                        ips_to_check = [f"{base_ip}.{i}" for i in range(1, 255)]
+                        results = executor.map(check_ip, ips_to_check)
+                        for ip in results:
+                            if ip:
+                                print(f"\n[+] FALLBACK DISCOVERY: Sentry hardware found at {ip} via HTTP Unicast!")
+                                self.esp32_ip = ip
+                                update_global_state(hardware="online")
+                                break
+                
+                if self.esp32_ip is None:
+                    update_global_state(hardware="offline")
             except Exception:
                 pass
 
     def run(self):
+        local_ip = get_local_ip()
         print("\n[*] Starting Sentry System...")
         print(f"[*] Camera Stream: {self.stream_url}")
-        print("[*] Web UI available at: http://localhost:5000")
+        print(f"[*] Emo Face UI available at: http://{local_ip}:5000/")
+        print(f"[*] Remote Dashboard available at: http://{local_ip}:5000/remote")
         print("[*] Press 'q' in the video window to quit.\n")
         
         # 1. Start Flask UI Thread
         flask_thread = threading.Thread(target=run_flask_server)
         flask_thread.daemon = True
         flask_thread.start()
+
+        # 2. Start Telegram Listener Thread
+        tele_thread = threading.Thread(target=telegram_polling_thread)
+        tele_thread.daemon = True
+        tele_thread.start()
 
         # 3. Start Video Stream Thread
         cap = VideoStreamWidget(self.stream_url)
@@ -782,16 +879,7 @@ def find_camera_ip():
     import socket
     import concurrent.futures
     
-    def get_local_ip():
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except:
-            return "192.168.0.1"
-
+    # get_local_ip is now globally defined
     local_ip = get_local_ip()
     base_ip = ".".join(local_ip.split('.')[:-1])
     

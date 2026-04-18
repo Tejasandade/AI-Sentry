@@ -416,6 +416,7 @@
         let audioEnabled = false;
         let firingTimeout = null;
         let shootingInterval = null;
+        let lastAudioTimestamp = null;
 
         // Auto-enable audio on ANY user interaction (click or touch)
         function enableAudio() {
@@ -536,6 +537,17 @@
                             }
                         }, 3000); // 3-second warning grace period
                     }
+                }
+                
+                // Audio command playback
+                if (data.audio_timestamp && data.audio_timestamp !== lastAudioTimestamp) {
+                    if (lastAudioTimestamp !== null && audioEnabled) {
+                        console.log("Playing new voice command from dashboard...");
+                        const audioCmd = new Audio('/latest_audio?t=' + data.audio_timestamp);
+                        audioCmd.volume = 1.0;
+                        audioCmd.play().catch(e => console.error("Audio playback failed:", e));
+                    }
+                    lastAudioTimestamp = data.audio_timestamp;
                 }
                 
                 // HUD Math Updates
